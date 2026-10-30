@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b100c">
+<title>Operação Tática</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="topLeft">
+    <div class="bar"><div id="hpFill"></div><span id="hpText">100</span></div>
+    <div class="bar armor"><div id="arFill"></div><span id="arText"></span></div>
+    <div class="bodyRow"><canvas id="bodyHud" width="62" height="98"></canvas><div><div id="floorTag">TÉRREO</div><div id="bleedTag" class="hidden">🩸 SANGRANDO</div></div></div>
+    <div id="killInfo">☠ <b id="kills">0</b> &nbsp;·&nbsp; <span id="timer">00:00</span></div>
+    <div id="squad"></div>
+  </div>
+
+  <div id="objective">
+    <div id="missionName"></div>
+    <div id="objText"></div>
+  </div>
+
+  <div id="topRight">
+    <canvas id="minimap" width="104" height="104"></canvas>
+    <div class="topBtns">
+      <button id="btnInv" title="Inventário (I / Tab)">🎒</button>
+      <button id="btnMute" title="Som (M)">🔊</button>
+      <button id="btnPause" title="Pausar (P)">⏸</button>
+    </div>
+  </div>
+
+  <div id="prompt" class="hidden"></div>
+  <div id="wname"></div>
+  <div id="weapons"></div>
+
+  <div id="cons">
+    <button id="btnGren" title="Granada (G)"><span>💣</span><b id="cGren">0</b><i>G</i></button>
+    <button id="btnMed" title="Kit médico (H)"><span>✚</span><b id="cMed">0</b><i>H</i></button>
+    <button id="btnRep" title="Reparar colete (V)"><span>🛡</span><b id="cRep">0</b><i>V</i></button>
+    <button id="btnVis" class="hidden" title="Visão noturna/térmica (N)"><span>👁</span><i>N</i></button>
+    <button id="btnThr" title="Trocar item arremessável (T)"><span>⟳</span><i>T</i></button>
+    <button id="btnAmmo" class="hidden" title="Tipo de cartucho (B)"><span>🔁</span><i>B</i></button>
+    <button id="btnCmd" class="hidden" title="Parceiros: seguir / manter (C)"><span>👥</span><i>C</i></button>
+  </div>
+
+  <div id="touchBtns">
+    <button id="btnReload" aria-label="Recarregar">↻</button>
+    <button id="btnSwap" aria-label="Trocar arma">⇄</button>
+    <button id="btnMeleeT" aria-label="Golpe corpo a corpo">🔪</button>
+  </div>
+  <button id="btnAct" class="hidden">AÇÃO</button>
+
+  <div id="keyHint">WASD mover · Shift andar · Mouse mirar/atirar · 1-3 armas · F golpe · R recarregar · G arremessar · T trocar item · B tipo de cartucho · H kit · N visão · E interagir · I inventário</div>
+
+  <div id="mpBoard" class="hidden"></div>
+  <div id="mpFeed" class="hidden"></div>
+  <div id="mpRespawn" class="hidden"></div>
+
+  <div id="banner"></div>
+  <div id="hitFlash"></div>
+
+  <div class="stick" id="stickMove"><div class="knob"></div></div>
+  <div class="stick" id="stickAim"><div class="knob"></div></div>
+</div>
+
+<!-- Menu -->
+<div id="menu" class="overlay">
+  <div class="panel wide">
+    <div class="logo">OPERAÇÃO <span>TÁTICA</span></div>
+    <div class="credits">💰 <b id="menuCredits">0</b></div>
+    <p class="sub">Escolha o modo de jogo</p>
+    <div id="modeGrid"></div>
+    <div id="menuLoadout"></div>
+    <div class="row">
+      <button id="btnArsenal" class="ghost">ARSENAL E ESQUADRÃO</button>
+      <button id="btnCustom" class="ghost">🎛 PARTIDA PERSONALIZADA</button>
+      <button id="btnMulti" class="ghost">🌐 MULTIPLAYER ONLINE</button>
+      <button id="btnStart" class="big">INICIAR OPERAÇÃO</button>
+    </div>
+    <div class="howto">
+      <div><b>PC</b> — WASD mover · mouse mira e atira · 1-2-3 / Q / roda trocam primária, secundária e corpo a corpo · F golpe rápido · N visão noturna/térmica · Shift anda devagar (mais preciso e silencioso) · R recarrega (joga o carregador fora, com as balas que sobraram) · G arremessar · T trocar item · B tipo de cartucho · H kit médico · V reparar colete · E (segurar) interagir · C parceiros ficam/seguem · I inventário</div>
+      <div><b>Celular</b> — esquerda: analógico de movimento · direita: arraste para mirar e atirar · botões na lateral para recarregar, granada, kit e mais</div>
+    </div>
+  </div>
+</div>
+
+<!-- Arsenal / Inventário -->
+<div id="arsenal" class="overlay hidden">
+  <div class="panel wide arsp">
+    <div id="arsBody"></div>
+    <div id="arsToast"></div>
+  </div>
+</div>
+
+<!-- Partida personalizada -->
+<div id="customScreen" class="overlay hidden">
+  <div class="panel wide arsp">
+    <div id="customBody"></div>
+  </div>
+</div>
+
+<!-- Multiplayer online -->
+<div id="mpScreen" class="overlay hidden">
+  <div class="panel wide arsp">
+    <div id="mpBody"></div>
+  </div>
+</div>
+
+<!-- Fim de missão -->
+<div id="endScreen" class="overlay hidden">
+  <div class="panel">
+    <div id="endTitle" class="logo"></div>
+    <p id="endSub" class="sub"></p>
+    <div id="endStats"></div>
+    <div class="row">
+      <button id="btnNext" class="big">PRÓXIMO NÍVEL</button>
+      <button id="btnRetry" class="big">TENTAR DE NOVO</button>
+      <button id="btnEndArsenal" class="ghost">ARSENAL</button>
+      <button id="btnMpLobby" class="big hidden">VOLTAR À SALA</button>
+      <button id="btnMenu" class="ghost">MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pausa -->
+<div id="pauseScreen" class="overlay hidden">
+  <div class="panel small">
+    <div class="logo">PAUSADO</div>
+    <label class="shadowCtl">Intensidade da sombra <b id="shadowVal"></b><input type="range" id="shadowRange" min="0" max="100"></label>
+    <div class="row">
+      <button id="btnResume" class="big">CONTINUAR</button>
+      <button id="btnPauseInv" class="ghost">🎒 INVENTÁRIO</button>
+      <button id="btnQuit" class="ghost">ABANDONAR</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="data.js"></script>
+<script src="world.js"></script>
+<script src="game.js"></script>
+<script src="mp.js"></script>
+<script src="render.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
