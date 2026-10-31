@@ -190,25 +190,41 @@ function cmdAlliesExist() {
   if (MP.on) return mpTdm() && enemies.some(e => e.mpId != null && !e.dead && !mpHostile(MP.myId, e.mpId)) || (!MP.isHost && mpTdm());
   return allies.some(a => a.kind === 'partner' && !a.dead);
 }
+// o reconhecedor fica aberto entre um aperto e outro (o navegador só pergunta o microfone ao abrir) e só vale enquanto segura Y
+function cmdStopListen() {
+  clearTimeout(CMD.idleT); CMD.idleT = 0;
+  if (CMD.rec) { const r = CMD.rec; CMD.rec = null; try { r.stop(); } catch (_) { /* ignora */ } }
+}
 function cmdListen(on) {
-  if (!on) { if (CMD.rec) { try { CMD.rec.stop(); } catch (_) { /* ignora */ } } return; }
+  CMD.holding = !!on;
+  if (!on) { CMD.releaseT = performance.now(); return; }
   if (!cmdAlliesExist()) return;
   if (!CMD_SR) { if (!CMD.noRec) { CMD.noRec = true; banner('SEM RECONHECIMENTO DE VOZ NESTE NAVEGADOR — USE O MENU (Z)'); } return; }
+  clearTimeout(CMD.idleT); CMD.idleT = setTimeout(cmdStopListen, 150000);   // fecha após 2,5 min sem uso (apaga o ícone de microfone)
+  if (location.protocol === 'file:' && !CMD.fileWarn) {
+    CMD.fileWarn = true;
+    radioFeedLine('Rádio', 'O jogo está aberto como arquivo local: o navegador pergunta o microfone a cada abertura e não lembra a resposta. Abra pelo link do GitHub Pages (ou localhost) e marque "Sempre permitir".', false);
+  }
+  if (CMD.rec) return;
   try {
-    const r = new CMD_SR(); CMD.rec = r; CMD.heard = '';
-    r.lang = 'pt-BR'; r.interimResults = false; r.maxAlternatives = 4; r.continuous = false;
+    const r = new CMD_SR(); CMD.rec = r;
+    r.lang = 'pt-BR'; r.interimResults = false; r.maxAlternatives = 4; r.continuous = true;
     r.onresult = e => {
-      for (let i = 0; i < e.results[0].length; i++) {
-        const txt = e.results[0][i].transcript, k = cmdParse(txt);
-        if (k) { cmdIssue(k, txt); return; }
+      for (let n = e.resultIndex; n < e.results.length; n++) {
+        if (!e.results[n].isFinal) continue;
+        if (!(CMD.holding || performance.now() - (CMD.releaseT || 0) < 3500)) continue;   // fala fora do botão é ignorada
+        const alts = e.results[n];
+        let done = false;
+        for (let i = 0; i < alts.length && !done; i++) { const k = cmdParse(alts[i].transcript); if (k) { cmdIssue(k, alts[i].transcript); done = true; } }
+        if (!done) { radioFeedLine('Você', '"' + alts[0].transcript + '"', true); radioFeedLine('Rádio', 'Não entendi a ordem. Tente: seguir, ficar, atacar, ir até lá, defender, recuar, reportar.', false); }
       }
-      radioFeedLine('Você', '"' + e.results[0][0].transcript + '"', true); radioFeedLine('Rádio', 'Não entendi a ordem. Tente: seguir, ficar, atacar, ir até lá, defender, recuar, reportar.', false);
     };
-    r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') banner('LIBERE O MICROFONE PARA DAR ORDENS POR VOZ'); };
-    r.onend = () => { if (CMD.rec === r) CMD.rec = null; };
+    r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { banner('LIBERE O MICROFONE PARA DAR ORDENS POR VOZ'); if (CMD.rec === r) CMD.rec = null; } };
+    r.onend = () => { if (CMD.rec === r) CMD.rec = null; };   // volta a abrir no próximo aperto de Y
     r.start();
-  } catch (_) { /* ignora */ }
+  } catch (_) { CMD.rec = null; }
 }
+document.addEventListener('visibilitychange', () => { if (document.hidden) cmdStopListen(); });
 
 /* ---------- Menu de ordens (tecla Z) ---------- */
 function toggleCmd(v) {

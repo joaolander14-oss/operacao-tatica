@@ -44,6 +44,7 @@ async function radioMic() {
   if (RADIO.asking) return false;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { RADIO.err = 'Microfone indisponível (precisa de HTTPS).'; return false; }
   RADIO.asking = true;
+  if (location.protocol === 'file:' && !RADIO.fileWarn) { RADIO.fileWarn = true; banner('ARQUIVO LOCAL: O NAVEGADOR PEDE O MICROFONE TODA VEZ — USE O LINK DO GITHUB PAGES'); }
   try {
     const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     RADIO.mic = st; RADIO.track = st.getAudioTracks()[0]; RADIO.track.enabled = false;
