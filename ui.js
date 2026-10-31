@@ -183,8 +183,9 @@ function weaponTags(w) {
   if (w.flame) t.push('Chamas');
   if (w.sup) t.push('Silenciada');
   const pen = CALIBERS[w.cal].pen + (w.ap || 0);
-  if (pen >= 3.2) t.push('Penetra paredes');
-  else if (pen >= 1.8) t.push('Atravessa madeira');
+  if (pen >= MAT[K.WALL].cost) t.push('Atravessa concreto');
+  else if (pen >= MAT[K.BRICK].cost) t.push('Atravessa paredes de casa');
+  else if (pen >= MAT[K.WOODW].cost) t.push('Atravessa madeira');
   if (w.breaks) t.push('Quebra caixas');
   if (w.rocket) t.push('Explosiva');
   if (w.pellets > 1) t.push('Chumbo ×' + w.pellets);
@@ -407,7 +408,7 @@ function showCustom() {
   renderCustom();
 }
 function renderCustom() {
-  const o = SAVE.custom.opts, types = [['soldier', 'Soldado'], ['scout', 'Batedor'], ['heavy', 'Pesado'], ['rusher', 'Invasor (corpo a corpo)']];
+  const o = SAVE.custom.opts, types = ALL_TYPES;
   const ws = SAVE.custom.weapons.filter(Boolean).map(id => WMAP[id].name).join(' · ');
   $('customBody').innerHTML = `<div class="ahead"><div class="atitle">PARTIDA PERSONALIZADA</div><div class="credits sm">Tudo liberado · não afeta seus créditos nem progresso</div></div>
   <div class="copts">

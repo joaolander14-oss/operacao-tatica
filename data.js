@@ -26,7 +26,7 @@ const fmtTime = s => { s = Math.floor(s); return String(Math.floor(s / 60)).padS
 
 /* ---------- Tiles e materiais ---------- */
 // mv = bloqueia movimento · op = bloqueia a visão · cost = custo de penetração para balas
-const K = { FLOOR: 0, WALL: 1, CRATE: 2, TREE: 3, WINDOW: 4, DOOR: 5, DOOROPEN: 6, STAIRUP: 7, STAIRDN: 8, PART: 9, WINBROKEN: 10 };
+const K = { FLOOR: 0, WALL: 1, CRATE: 2, TREE: 3, WINDOW: 4, DOOR: 5, DOOROPEN: 6, STAIRUP: 7, STAIRDN: 8, PART: 9, WINBROKEN: 10, BRICK: 11, WOODW: 12 };
 const MAT = [
   { mv: 0, op: 0, cost: 0,   name: 'piso' },
   { mv: 1, op: 1, cost: 4.2, name: 'concreto' },
@@ -39,8 +39,10 @@ const MAT = [
   { mv: 0, op: 0, cost: 0,   name: 'escada' },
   { mv: 1, op: 1, cost: 1.3, name: 'drywall' },
   { mv: 1, op: 0, cost: 0,   name: 'janela quebrada' },
+  { mv: 1, op: 1, cost: 2.6, name: 'tijolo' },
+  { mv: 1, op: 1, cost: 1.5, name: 'parede de madeira' },
 ];
-const WALKABLE = [1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0];   // para pathfinding (portas contam: abrem sozinhas)
+const WALKABLE = [1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0];   // para pathfinding (portas contam: abrem sozinhas)
 
 /* ---------- Partes do corpo (estilo War Thunder) ---------- */
 const PARTS = ['head', 'torso', 'armL', 'armR', 'legL', 'legR'];
@@ -83,6 +85,13 @@ const CALIBERS = {
   '.243':    { name: '.243 Win',      dmg: 36,  pen: 2.9, cap: 100, pack: 15, color: '#b0c8e0' },
   '.45-70':  { name: '.45-70 Govt',   dmg: 70,  pen: 2.7, cap: 40,  pack: 6,  color: '#ffb890' },
   '.300WM':  { name: '.300 Win Mag',  dmg: 88,  pen: 4.0, cap: 40,  pack: 6,  color: '#90c8ff' },
+  '.32':     { name: '.32 ACP',       dmg: 12,  pen: .7,  cap: 150, pack: 30, color: '#e8e0a8' },
+  '9x18':    { name: '9×18 mm',       dmg: 15,  pen: 1.0, cap: 180, pack: 30, color: '#e0c890' },
+  '.30-30':  { name: '.30-30 Win',    dmg: 50,  pen: 2.4, cap: 80,  pack: 12, color: '#d8a878' },
+  '.50BW':   { name: '.50 Beowulf',   dmg: 62,  pen: 2.7, cap: 40,  pack: 8,  color: '#ffa878' },
+  '.375':    { name: '.375 H&H',      dmg: 100, pen: 3.8, cap: 36,  pack: 5,  color: '#a8c8ff' },
+  '.416':    { name: '.416 Barrett',  dmg: 165, pen: 4.8, cap: 28,  pack: 4,  color: '#b8a8ff' },
+  '14.5':    { name: '14.5×114 mm',   dmg: 230, pen: 6.0, cap: 20,  pack: 4,  color: '#d890ff' },
   // escopetas: pel = projéteis por tiro · sf = fator de dispersão · inc = incendeia · stun = atordoa · frag = raio da explosão
   '12ga':        { name: '12 GA Chumbo',    tag: 'CHUMBO',  dmg: 11, pen: .6,  cap: 48, pack: 8, color: '#d95a5a', pel: 8,  sf: 1,   fam: 'g12' },
   '12ga-slug':   { name: '12 GA Slug',      tag: 'SLUG',    dmg: 88, pen: 2.8, cap: 30, pack: 5, color: '#ff9a7a', pel: 1,  sf: .12, fam: 'g12' },
@@ -143,6 +152,13 @@ const WEAPONS = [
   W({ id: 'tt33', slot: 'secondary', grp: 'Pistolas', name: 'Tokarev TT-33', cal: '7.62x25', dm: 1.35, delay: .26, mag: 8, reload: 1.0, spread: .03, speed: 1150, range: 640, len: 14, noise: 400, kick: 1.3, snd: 'pistol', rc: 'pistol', price: 260, shape: 'pistol', desc: 'Veloz e perfurante para uma pistola.' }),
   W({ id: 'c96', slot: 'secondary', grp: 'Pistolas', name: 'Mauser C96', cal: '7.62x25', dm: 1.1, burst: 3, bd: .05, delay: .42, mag: 10, reload: 1.4, spread: .035, speed: 1150, range: 640, len: 17, noise: 420, kick: 1.4, snd: 'pistol', rc: 'pistol', price: 600, shape: 'pistol', desc: 'Rajadas de 3 tiros com cabo de madeira.' }),
 
+  W({ id: 'cz83', slot: 'secondary', grp: 'Pistolas', name: 'CZ 83', cal: '.32', dm: 1.3, delay: .22, mag: 15, reload: 1.0, spread: .035, speed: 850, range: 520, len: 13, noise: 340, kick: .8, snd: 'pistol', rc: 'pistol', price: 180, shape: 'pistol', desc: 'Leve, pente de 15 em .32.' }),
+  W({ id: 'pm918', slot: 'secondary', grp: 'Pistolas', name: 'PM 9×18', cal: '9x18', dm: 1.35, delay: .27, mag: 8, reload: 1.0, spread: .035, speed: 900, range: 560, len: 13, noise: 360, kick: 1.1, snd: 'pistol', rc: 'pistol', price: 200, shape: 'pistol', desc: 'Pistola soviética clássica.' }),
+  W({ id: 'aps', slot: 'secondary', grp: 'Pistolas automáticas', name: 'Stechkin APS', cal: '9x18', dm: .95, burst: 3, bd: .04, delay: .45, mag: 20, reload: 1.3, spread: .04, speed: 900, range: 560, len: 17, noise: 380, kick: 1, snd: 'pistol', rc: 'gun', price: 500, shape: 'pistol', desc: 'Rajadas de 3 tiros.' }),
+  W({ id: 'vz61', slot: 'secondary', grp: 'Pistolas automáticas', name: 'Skorpion vz.61', cal: '.32', dm: 1, delay: .05, mag: 20, reload: 1.4, spread: .08, speed: 850, range: 440, len: 14, noise: 360, kick: .6, snd: 'smg', rc: 'gun', price: 400, shape: 'pistol', desc: 'Cadência altíssima em .32.' }),
+  W({ id: 'anaconda', slot: 'secondary', grp: 'Revólveres', name: 'Colt Anaconda', cal: '.44', dm: 1.7, delay: .6, mag: 6, reload: 2.9, spread: .02, speed: 1100, range: 820, len: 18, noise: 580, kick: 4, push: 2.2, snd: 'pistol', rc: 'mag', price: 850, shape: 'revolver', desc: 'Revólver .44 de cano longo.' }),
+  W({ id: 'sw460', slot: 'secondary', grp: 'Revólveres', name: 'S&W 460', cal: '.50BW', dm: 1.3, delay: .75, mag: 5, reload: 3.0, spread: .02, speed: 1150, range: 820, len: 19, noise: 640, kick: 5.2, push: 3.2, ap: .2, snd: 'pistol', rc: 'mag', price: 1300, shape: 'revolver', desc: '.50 Beowulf: coice e dano brutais.' }),
+
   /* ===== PRIMÁRIAS: submetralhadoras ===== */
   W({ id: 'mp5', grp: 'Submetralhadoras', name: 'MP5', cal: '9mm', dm: .82, delay: .07, mag: 30, reload: 1.5, spread: .075, speed: 1050, range: 620, len: 23, noise: 430, kick: .9, speedMod: 1.03, snd: 'smg', rc: 'smg', price: 450, shape: SH(6, 14, 5.4, 8, 2, '#2a2a2a', { sc: '#222' }), desc: 'Cadência altíssima.' }),
   W({ id: 'mp5sd', grp: 'Submetralhadoras', name: 'MP5SD', cal: '9mm', dm: .76, delay: .08, mag: 30, reload: 1.6, spread: .06, speed: 950, range: 560, len: 26, noise: 70, kick: .8, sup: true, speedMod: 1.02, snd: 'smg', rc: 'smg', price: 1000, shape: SH(6, 14, 5.4, 8, 3.4, '#2a2a2a', { sc: '#222', sup: true }), desc: 'Silenciada para infiltração.' }),
@@ -154,6 +170,13 @@ const WEAPONS = [
   W({ id: 'p90', grp: 'Submetralhadoras', name: 'P90', cal: '5.7', dm: .95, delay: .065, mag: 50, reload: 2.4, spread: .06, speed: 1300, range: 700, len: 22, noise: 430, kick: .7, snd: 'smg', rc: 'smg', price: 1100, shape: SH(3, 18, 7, 5, 2, '#2d3136', { sc: '#2d3136' }), desc: 'Pente de 50, perfura blindagem.' }),
 
   W({ id: 'ppsh', grp: 'Submetralhadoras', name: 'PPSh-41', cal: '7.62x25', dm: .85, delay: .055, mag: 71, reload: 2.8, spread: .09, speed: 1150, range: 560, len: 22, noise: 460, kick: 1, snd: 'smg', rc: 'smg', price: 700, shape: SH(8, 15, 6, 8, 2.4, '#3a2d20', { sc: '#6a4524', wood: true, mag: true }), desc: 'Tambor de 71 tiros em 7.62×25.' }),
+
+  W({ id: 'sten', grp: 'Submetralhadoras', name: 'Sten', cal: '9mm', dm: .85, delay: .1, mag: 32, reload: 1.8, spread: .09, speed: 900, range: 500, len: 24, noise: 440, kick: .9, speedMod: 1.03, snd: 'smg', rc: 'smg', price: 350, shape: SH(0, 16, 4, 12, 2.2, '#2a2a2a', { sc: '#2a2a2a' }), desc: 'Barata e simples.' }),
+  W({ id: 'mp40', grp: 'Submetralhadoras', name: 'MP 40', cal: '9mm', dm: .85, delay: .105, mag: 32, reload: 1.8, spread: .08, speed: 920, range: 520, len: 25, noise: 440, kick: .9, speedMod: 1.02, snd: 'smg', rc: 'smg', price: 500, shape: SH(6, 14, 5, 8, 2, '#2a2a2a', { sc: '#6a4524' }), desc: 'Clássica submetralhadora de 9 mm.' }),
+  W({ id: 'thompson', grp: 'Submetralhadoras', name: 'Thompson M1928', cal: '.45', dm: .85, delay: .09, mag: 50, reload: 2.6, spread: .08, speed: 900, range: 560, len: 26, noise: 480, kick: 1.4, speedMod: .98, snd: 'smg', rc: 'smg', price: 900, shape: SH(7, 15, 6, 9, 2.4, '#2d2d2d', { sc: '#6a4524', wood: true, mag: true }), desc: 'Tambor de 50 em .45.' }),
+  W({ id: 'mp9', grp: 'Submetralhadoras', name: 'B&T MP9', cal: '9mm', dm: .78, delay: .06, mag: 30, reload: 1.4, spread: .08, speed: 1000, range: 480, len: 17, noise: 420, kick: .8, speedMod: 1.04, snd: 'smg', rc: 'smg', price: 850, shape: SH(4, 12, 5, 5, 2, '#2d3136', { sc: '#2d3136' }), desc: 'Compacta e muito rápida.' }),
+  W({ id: 'evo3', grp: 'Submetralhadoras', name: 'Scorpion EVO 3', cal: '9mm', dm: .85, delay: .075, mag: 30, reload: 1.5, spread: .06, speed: 1000, range: 600, len: 22, noise: 430, kick: .8, speedMod: 1.02, snd: 'smg', rc: 'low', price: 750, shape: SH(5, 15, 5.4, 8, 2, '#33363a', { sc: '#33363a' }), desc: 'Estável e versátil.' }),
+  W({ id: 'kedr', grp: 'Submetralhadoras', name: 'PP-91 Kedr', cal: '9x18', dm: .85, delay: .07, mag: 30, reload: 1.5, spread: .09, speed: 950, range: 480, len: 17, noise: 400, kick: .8, speedMod: 1.03, snd: 'smg', rc: 'smg', price: 450, shape: SH(4, 11, 5, 5, 2, '#33363a', { sc: '#33363a' }), desc: 'Compacta soviética em 9×18.' }),
 
   /* ===== PRIMÁRIAS: fuzis de assalto ===== */
   W({ id: 'ar15', grp: 'Fuzis de assalto', name: 'AR-15', cal: '5.56', dm: .95, delay: .1, mag: 30, reload: 1.7, spread: .055, speed: 1250, range: 900, len: 31, noise: 520, kick: 1.6, speedMod: .97, snd: 'rifle', rc: 'ar', shape: SH(8, 18, 6, 12, 2.4, '#2c2f33'), desc: 'Automático equilibrado.' }),
@@ -190,6 +213,11 @@ const WEAPONS = [
   W({ id: 'stg44', grp: 'Fuzis de assalto', name: 'StG 44', cal: '7.92k', dm: 1, delay: .105, mag: 30, reload: 1.9, spread: .07, speed: 1200, range: 860, len: 30, noise: 580, kick: 2, speedMod: .96, snd: 'rifle', rc: 'ak', price: 1100, shape: SH(8, 18, 5.4, 12, 2.4, '#3a2d20', { sc: '#6a4524', wood: true }), desc: 'O primeiro fuzil de assalto.' }),
   W({ id: 'm1carbine', grp: 'Fuzis de assalto', name: 'M2 Carbine', cal: '.30carb', dm: 1, delay: .09, mag: 30, reload: 1.6, spread: .06, speed: 1050, range: 700, len: 24, noise: 440, kick: 1.1, speedMod: 1.02, snd: 'rifle', rc: 'smg', price: 600, shape: SH(8, 14, 5, 10, 2, '#3a2d20', { sc: '#6a4524', wood: true }), desc: 'Carabina leve da Segunda Guerra.' }),
 
+  W({ id: 'm27', grp: 'Fuzis de assalto', name: 'HK M27 IAR', cal: '5.56', dm: 1, delay: .09, mag: 30, reload: 1.7, spread: .034, speed: 1350, range: 980, len: 31, noise: 510, kick: 1.2, speedMod: .97, snd: 'rifle', rc: 'low', price: 1350, shape: SH(8, 18, 6, 11, 2.4, '#3a3d40'), desc: 'Fuzil automático de esquadra, muito estável.' }),
+  W({ id: 'cz805', grp: 'Fuzis de assalto', name: 'CZ 805 Bren', cal: '5.56', dm: 1, delay: .092, mag: 30, reload: 1.7, spread: .04, speed: 1300, range: 920, len: 30, noise: 520, kick: 1.3, speedMod: .98, snd: 'rifle', rc: 'low', price: 1100, shape: SH(8, 18, 6.2, 11, 2.4, '#34383c', { sc: '#34383c' }), desc: 'Modular e equilibrado.' }),
+  W({ id: 'ar57', grp: 'Fuzis de assalto', name: 'AR-57', cal: '5.7', dm: .95, delay: .07, mag: 50, reload: 2.2, spread: .05, speed: 1400, range: 760, len: 28, noise: 440, kick: .8, speedMod: 1, snd: 'rifle', rc: 'low', price: 1700, shape: SH(8, 17, 6.4, 10, 2.4, '#2d2d33', { sc: '#2d2d33', mag: true }), desc: 'Pente de 50 em 5.7×28.' }),
+  W({ id: 'beowulf', grp: 'Fuzis de assalto', name: 'AR .50 Beowulf', cal: '.50BW', dm: 1, delay: .13, mag: 15, reload: 1.9, spread: .05, speed: 1000, range: 700, len: 28, noise: 600, kick: 3, speedMod: .94, snd: 'rifle', rc: 'gun', price: 1600, shape: SH(8, 17, 6.4, 9, 3, '#2c2f33'), desc: '.50 Beowulf: curto alcance, impacto enorme.' }),
+
   /* ===== PRIMÁRIAS: fuzis de batalha e atiradores designados ===== */
   W({ id: 'scar', grp: 'Fuzis de batalha', name: 'SCAR-H', cal: '.308', dm: .95, delay: .13, mag: 20, reload: 2.0, spread: .06, speed: 1500, range: 1000, len: 32, noise: 620, kick: 2.6, speedMod: .94, snd: 'rifle', rc: 'gun', price: 1500, shape: SH(8, 19, 6.4, 12, 2.6, '#5a5238', { sc: '#4a4430' }), desc: '.308 pesado e potente.' }),
   W({ id: 'hk417', grp: 'Fuzis de batalha', name: 'HK417', cal: '.308', dm: 1.05, delay: .12, mag: 20, reload: 2.0, spread: .05, speed: 1550, range: 1050, len: 32, noise: 620, kick: 2.4, speedMod: .94, snd: 'rifle', rc: 'gun', price: 1600, shape: SH(8, 19, 6.4, 12, 2.6, '#3a3d40', { sc: '#3a3d40' }), desc: 'Batalha estável com .308.' }),
@@ -207,6 +235,9 @@ const WEAPONS = [
   W({ id: 'sks', grp: 'Fuzis de batalha', name: 'SKS', cal: '7.62x39', dm: 1.1, delay: .2, mag: 10, reload: 1.8, spread: .03, speed: 1250, range: 950, len: 32, noise: 580, kick: 1.9, speedMod: .97, snd: 'rifle', rc: 'dmr', price: 500, shape: SH(9, 17, 5, 13, 2.2, '#3a2d20', { sc: '#6a4524', wood: true }), desc: 'Semi-auto simples e barato.' }),
   W({ id: 'svt40', grp: 'Fuzis de batalha', name: 'SVT-40', cal: '7.62x54', dm: 1, delay: .22, mag: 10, reload: 1.9, spread: .03, speed: 1700, range: 1200, len: 36, noise: 700, kick: 3.2, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 1100, shape: SH(9, 18, 5.4, 15, 2.4, '#3a2d20', { sc: '#6a4524', wood: true }), desc: 'Semi-automático soviético em 7.62×54R.' }),
 
+  W({ id: 'scar20', grp: 'Atiradores designados', name: 'SCAR-20S', cal: '.308', dm: 1.4, delay: .26, mag: 20, reload: 2.0, spread: .009, speed: 2000, range: 1500, len: 36, noise: 650, kick: 2.4, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 2400, shape: SH(9, 20, 6.2, 14, 2.5, '#5a5238', { sc: '#4a4430', scope: true }), desc: 'DMR semi-auto de precisão.' }),
+  W({ id: 'm39', grp: 'Atiradores designados', name: 'Mk 39 EMR', cal: '.308', dm: 1.35, delay: .28, mag: 20, reload: 2.0, spread: .01, speed: 2000, range: 1450, len: 36, noise: 640, kick: 2.5, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 2200, shape: SH(9, 20, 6, 14, 2.4, '#33363a', { sc: '#33363a', scope: true }), desc: 'Atirador designado de esquadra.' }),
+
   W({ id: 'm14', grp: 'Atiradores designados', name: 'M14 DMR', cal: '.308', dm: 1.37, delay: .32, mag: 10, reload: 2.0, spread: .012, speed: 1900, range: 1400, len: 36, noise: 650, kick: 2.8, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 1200, shape: SH(9, 20, 5.6, 14, 2.4, '#3a2d20', { sc: '#6a4524', scope: true }), desc: 'Semi-auto de longo alcance.' }),
   W({ id: 'sr25', grp: 'Atiradores designados', name: 'SR-25', cal: '6.5', dm: 1.2, delay: .28, mag: 20, reload: 2.1, spread: .01, speed: 2000, range: 1500, len: 36, noise: 640, kick: 2.4, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 1900, shape: SH(9, 20, 5.6, 14, 2.4, '#2d3136', { sc: '#2d3136', scope: true }), desc: '6.5 Creedmoor, rápido e preciso.' }),
   W({ id: 'garand', grp: 'Atiradores designados', name: 'M1 Garand', cal: '.30-06', dm: 1, delay: .25, mag: 8, reload: 1.8, spread: .02, speed: 1800, range: 1300, len: 33, noise: 700, kick: 2.8, speedMod: .94, snd: 'rifle', rc: 'dmr', price: 800, shape: SH(9, 18, 5.4, 14, 2.4, '#3a2d20', { sc: '#6a4524', wood: true }), desc: '8 tiros potentes (.30-06).' }),
@@ -219,12 +250,24 @@ const WEAPONS = [
   W({ id: 'g28', grp: 'Atiradores designados', name: 'HK G28', cal: '.308', dm: 1.4, delay: .27, mag: 20, reload: 2.0, spread: .009, speed: 2000, range: 1500, len: 36, noise: 640, kick: 2.3, speedMod: .93, snd: 'rifle', rc: 'dmr', price: 2500, shape: SH(9, 20, 6.2, 14, 2.4, '#3a3d40', { sc: '#3a3d40', scope: true }), desc: 'Preciso e controlável.' }),
   W({ id: 'mini14', grp: 'Atiradores designados', name: 'Ruger Mini-14', cal: '5.56', dm: 1.2, delay: .18, mag: 20, reload: 1.8, spread: .02, speed: 1500, range: 1100, len: 34, noise: 520, kick: 1.5, speedMod: .97, snd: 'rifle', rc: 'dmr', price: 700, shape: SH(9, 17, 5, 13, 2.2, '#3a2d20', { sc: '#6a4524', wood: true }), desc: 'Semi-auto leve em 5.56.' }),
 
+  W({ id: 'trg42', grp: 'Snipers', name: 'Sako TRG-42', cal: '.338', dm: 1.05, delay: 1.3, mag: 5, reload: 2.2, spread: .001, speed: 3000, range: 2000, len: 42, noise: 800, kick: 5, push: 1, ap: .1, speedMod: .88, snd: 'sniper', rc: 'snp', price: 3000, shape: SH(9, 17, 6, 25, 2.4, '#3a3d40', { sc: '#3a3d40', scope: true }), desc: '.338 Lapua: atravessa paredes de casa e de prédio.' }),
+  W({ id: 'l96', grp: 'Snipers', name: 'AI L96', cal: '.308', dm: 2.0, delay: .85, mag: 10, reload: 2.2, spread: .003, speed: 2400, range: 1800, len: 41, noise: 740, kick: 3.5, push: 1, speedMod: .91, snd: 'sniper', rc: 'snp', price: 1600, shape: SH(9, 17, 5.6, 22, 2.4, '#34402f', { sc: '#2d3a2a', scope: true }), desc: 'Ferrolho .308 com pente de 10.' }),
+  W({ id: 'sv98', grp: 'Snipers', name: 'SV-98', cal: '7.62x54', dm: 1.4, delay: .9, mag: 10, reload: 2.2, spread: .003, speed: 2300, range: 1750, len: 42, noise: 740, kick: 3.6, push: 1, speedMod: .91, snd: 'sniper', rc: 'snp', price: 1500, shape: SH(9, 17, 5.6, 24, 2.4, '#2d3a2a', { sc: '#2d3a2a', scope: true }), desc: '7.62×54R com pente de 10.' }),
+  W({ id: 'cz550', grp: 'Snipers', name: 'CZ 550 .375', cal: '.375', dm: 1, delay: 1.0, mag: 5, reload: .55, reloadType: 'shell', spread: .004, speed: 2300, range: 1700, len: 40, noise: 760, kick: 5, push: 1.5, ap: .2, speedMod: .9, snd: 'sniper', rc: 'snp', price: 1800, shape: SH(9, 17, 5.4, 22, 2.6, '#3a2d20', { sc: '#6a4524', wood: true, scope: true }), desc: '.375 H&H: atravessa paredes de casa.' }),
+  W({ id: 'm99', grp: 'Snipers', name: 'Barrett M99', cal: '.416', dm: 1, delay: 1.5, mag: 5, reload: 2.8, spread: 0, speed: 3300, range: 2200, len: 46, noise: 900, kick: 7, push: 3, ap: .3, breaks: true, speedMod: .82, snd: 'sniper', rc: 'snp', price: 3600, shape: SH(10, 22, 6.4, 24, 3.2, '#4a4a40', { sc: '#3a3a30', scope: true }), desc: '.416: atravessa paredes de prédio e quebra obstáculos.' }),
+  W({ id: 'ptrs', grp: 'Snipers', name: 'PTRS-41', cal: '14.5', dm: 1, delay: 1.0, mag: 5, reload: 3.2, spread: .004, speed: 3400, range: 2100, len: 52, noise: 980, kick: 8.5, push: 4, ap: .5, breaks: true, speedMod: .75, snd: 'sniper', rc: 'snp', price: 3800, shape: SH(10, 22, 6, 28, 3.6, '#3a3a30', { sc: '#3a3a30' }), desc: 'Antimaterial 14.5×114: perfura quase tudo.' }),
+
   /* ===== PRIMÁRIAS: metralhadoras ===== */
   W({ id: 'm249', grp: 'Metralhadoras', name: 'M249 SAW', cal: '5.56', dm: .85, delay: .075, mag: 100, reload: 4.0, spread: .09, speed: 1200, range: 850, len: 35, noise: 560, kick: 1.5, speedMod: .84, snd: 'rifle', rc: 'lmg', price: 1800, shape: SH(9, 18, 7, 16, 3, '#2a2d2a', { sc: '#2a2d2a', mag: true }), desc: 'Pente de 100. Pesada.' }),
   W({ id: 'rpk', grp: 'Metralhadoras', name: 'RPK-74', cal: '5.45', dm: .95, delay: .09, mag: 75, reload: 3.4, spread: .08, speed: 1300, range: 880, len: 36, noise: 560, kick: 1.5, speedMod: .88, snd: 'rifle', rc: 'lmg', price: 1500, shape: SH(8, 18, 5.6, 18, 2.8, '#2d2a24', { sc: '#5a3a1c', wood: true, mag: true }), desc: 'Metralhadora leve com tambor.' }),
   W({ id: 'pkm', grp: 'Metralhadoras', name: 'PKM', cal: '7.62x54', dm: .5, delay: .09, mag: 100, reload: 4.6, spread: .1, speed: 1350, range: 900, len: 36, noise: 640, kick: 2.2, speedMod: .8, snd: 'rifle', rc: 'ak', price: 2200, shape: SH(9, 20, 7, 16, 3, '#3a3a2a', { sc: '#4a3a2a', mag: true }), desc: 'Fogo de supressão pesado.' }),
   W({ id: 'm60', grp: 'Metralhadoras', name: 'M60', cal: '.308', dm: .75, delay: .1, mag: 100, reload: 4.8, spread: .1, speed: 1400, range: 950, len: 37, noise: 660, kick: 2.3, speedMod: .78, snd: 'rifle', rc: 'ak', price: 2000, shape: SH(9, 20, 7, 17, 3, '#2a2d2a', { sc: '#3a3a2a', mag: true }), desc: '.308 cadenciado e pesado.' }),
   W({ id: 'mg42', grp: 'Metralhadoras', name: 'MG42', cal: '7.92', dm: .55, delay: .048, mag: 50, reload: 3.8, spread: .12, speed: 1300, range: 850, len: 36, noise: 680, kick: 1.4, speedMod: .8, snd: 'rifle', rc: 'lmg', price: 2800, shape: SH(9, 20, 7, 17, 3, '#3a3a30', { sc: '#3a3a30', mag: true }), desc: 'Cadência absurda.' }),
+
+  W({ id: 'mg3', grp: 'Metralhadoras', name: 'MG3', cal: '.308', dm: .55, delay: .055, mag: 120, reload: 5, spread: .11, speed: 1400, range: 900, len: 37, noise: 700, kick: 1.8, speedMod: .78, snd: 'rifle', rc: 'lmg', price: 2600, shape: SH(9, 20, 7, 17, 3, '#2a2d2a', { sc: '#2a2d2a', mag: true }), desc: 'Cadência altíssima em .308.' }),
+  W({ id: 'negev', grp: 'Metralhadoras', name: 'IWI Negev', cal: '5.56', dm: .8, delay: .07, mag: 150, reload: 5.2, spread: .09, speed: 1250, range: 850, len: 34, noise: 560, kick: 1.3, speedMod: .85, snd: 'rifle', rc: 'lmg', price: 2300, shape: SH(8, 18, 7, 15, 3, '#33363a', { sc: '#33363a', mag: true }), desc: 'Pente de 150 em 5.56.' }),
+  W({ id: 'rpd', grp: 'Metralhadoras', name: 'RPD', cal: '7.62x39', dm: .75, delay: .09, mag: 100, reload: 4.4, spread: .09, speed: 1250, range: 850, len: 35, noise: 600, kick: 1.6, speedMod: .86, snd: 'rifle', rc: 'lmg', price: 1500, shape: SH(8, 18, 6.4, 15, 2.8, '#3a2d20', { sc: '#6a4524', wood: true, mag: true }), desc: 'Metralhadora leve de fita.' }),
+  W({ id: 'bren', grp: 'Metralhadoras', name: 'Bren', cal: '.308', dm: .8, delay: .11, mag: 30, reload: 2.6, spread: .05, speed: 1450, range: 1000, len: 37, noise: 660, kick: 2.2, speedMod: .88, snd: 'rifle', rc: 'dmr', price: 1700, shape: SH(8, 19, 6.4, 17, 2.8, '#3a3a2a', { sc: '#3a3a2a', mag: true }), desc: 'Precisa para uma metralhadora; pente de 30.' }),
 
   /* ===== PRIMÁRIAS: escopetas (aceitam vários tipos de cartucho: tecla B) ===== */
   W({ id: 'spas', grp: 'Escopetas', name: 'SPAS-12', cal: '12ga', fam: 'g12', pm: 1, dm: 1.15, delay: .85, mag: 6, reload: .5, reloadType: 'shell', spread: .19, speed: 1000, range: 400, len: 32, noise: 560, kick: 4, push: 1.5, speedMod: .95, snd: 'shotgun', rc: 'sg', shape: SH(8, 12, 6, 20, 4, '#2c2f33', { sc: '#5b3b1f', pump: true }), desc: 'Carrega cartucho a cartucho.' }),
@@ -253,7 +296,7 @@ const WEAPONS = [
   W({ id: 'm200', grp: 'Snipers', name: 'CheyTac M200', cal: '.408', dm: 1, delay: 1.4, mag: 7, reload: 2.6, spread: 0, speed: 3200, range: 2200, len: 44, noise: 880, kick: 6, push: 2, speedMod: .85, snd: 'sniper', rc: 'snp', price: 3200, shape: SH(10, 20, 6, 26, 2.8, '#33363a', { sc: '#33363a', scope: true }), desc: '.408: precisão extrema, atravessa concreto.' }),
   W({ id: 'm82', grp: 'Snipers', name: 'Barrett M82', cal: '.50BMG', dm: 1.15, delay: 1.6, mag: 5, reload: 3.0, spread: 0, speed: 3400, range: 2200, len: 46, noise: 950, kick: 8, push: 3, ap: .4, breaks: true, speedMod: .8, snd: 'sniper', rc: 'snp', price: 2600, shape: SH(10, 22, 6.6, 22, 3.6, '#4a4a40', { sc: '#3a3a30', scope: true }), desc: 'Atravessa quase tudo e quebra caixas.' }),
   W({ id: 'howa', grp: 'Snipers', name: 'Rifle de Caça .243', cal: '.243', dm: 1.6, delay: .85, mag: 5, reload: .55, reloadType: 'shell', spread: .004, speed: 2300, range: 1700, len: 40, noise: 700, kick: 3, push: .8, speedMod: .94, snd: 'sniper', rc: 'snp', price: 500, shape: SH(9, 17, 5.2, 22, 2.2, '#3a3a3a', { sc: '#6a4524', wood: true, scope: true }), desc: 'Leve e rápido de manejar.' }),
-  W({ id: 'm24', grp: 'Snipers', name: 'M24 SWS', cal: '.300WM', dm: 1.2, delay: 1.0, mag: 5, reload: .55, reloadType: 'shell', spread: .002, speed: 2800, range: 2000, len: 41, noise: 780, kick: 4.6, push: 1.2, speedMod: .9, snd: 'sniper', rc: 'snp', price: 2400, shape: SH(9, 17, 5.6, 24, 2.4, '#34402f', { sc: '#2d3a2a', scope: true }), desc: '.300 Win Mag: atravessa paredes.' }),
+  W({ id: 'm24', grp: 'Snipers', name: 'M24 SWS', cal: '.300WM', dm: 1.2, ap: .3, delay: 1.0, mag: 5, reload: .55, reloadType: 'shell', spread: .002, speed: 2800, range: 2000, len: 41, noise: 780, kick: 4.6, push: 1.2, speedMod: .9, snd: 'sniper', rc: 'snp', price: 2400, shape: SH(9, 17, 5.6, 24, 2.4, '#34402f', { sc: '#2d3a2a', scope: true }), desc: '.300 Win Mag: atravessa paredes.' }),
   W({ id: 'winchester', grp: 'Rifles de alavanca', name: 'Winchester 1894', cal: '.44', dm: 1.1, delay: .5, mag: 8, reload: .4, reloadType: 'shell', spread: .02, speed: 1300, range: 1000, len: 30, noise: 560, kick: 2.6, push: .8, snd: 'rifle', rc: 'lvr', price: 700, shape: SH(8, 14, 5, 18, 2.6, '#3a3a3a', { sc: '#6a4524', wood: true }), desc: 'Alavanca rápida, cartucho a cartucho.' }),
   W({ id: 'marlin', grp: 'Rifles de alavanca', name: 'Marlin .45-70', cal: '.45-70', dm: 1, delay: .75, mag: 6, reload: .45, reloadType: 'shell', spread: .025, speed: 1200, range: 900, len: 30, noise: 640, kick: 3.4, push: 1.4, snd: 'rifle', rc: 'lvr', price: 900, shape: SH(8, 14, 5, 17, 2.8, '#3a3a3a', { sc: '#6a4524', wood: true }), desc: 'Alavanca pesada: derruba qualquer um.' }),
 
@@ -264,7 +307,9 @@ const WEAPONS = [
   W({ id: 'm79', grp: 'Lançadores', name: 'M79', cal: '40mm', dm: 1, delay: .9, mag: 1, reload: 1.8, spread: 0, speed: 700, range: 900, len: 26, noise: 600, kick: 4, push: 2, speedMod: .92, rocket: true, radius: 85, snd: 'rpg', rc: 'none', price: 1400, shape: 'm79', att: false, desc: 'Lança-granadas leve.' }),
   W({ id: 'mgl', grp: 'Lançadores', name: 'MGL-6', cal: '40mm', dm: .85, delay: .45, mag: 6, reload: 4.0, spread: 0, speed: 650, range: 850, len: 28, noise: 600, kick: 3, push: 1.5, speedMod: .85, rocket: true, radius: 80, snd: 'rpg', rc: 'none', price: 2800, shape: 'mgl', att: false, desc: 'Tambor de 6 granadas.' }),
   W({ id: 'minigun', grp: 'Armas pesadas', name: 'Minigun', cal: '.308', dm: .53, spin: true, delay: .04, mag: 300, reload: 6.5, spread: .12, speed: 1400, range: 800, len: 36, noise: 700, kick: 1, speedMod: .65, snd: 'rifle', rc: 'lmg', price: 3600, shape: 'minigun', att: false, desc: 'Gire o cano; depois vira uma serra.' }),
+  W({ id: 'kord', grp: 'Armas pesadas', name: 'Kord 14.5', cal: '14.5', dm: .55, delay: .1, mag: 80, reload: 7, spread: .1, speed: 1700, range: 1100, len: 44, noise: 900, kick: 3, push: 1.5, ap: .3, breaks: true, speedMod: .6, snd: 'sniper', rc: 'lmg', price: 4200, shape: 'minigun', att: false, desc: 'Metralhadora pesada: atravessa paredes. Muito lenta.' }),
   W({ id: 'flame', grp: 'Armas pesadas', name: 'Lança-chamas', cal: 'fuel', dm: 1, flame: true, delay: .045, mag: 100, reload: 3.0, spread: .09, speed: 420, range: 190, len: 30, noise: 400, kick: .3, speedMod: .85, snd: 'flame', rc: 'none', price: 2000, shape: 'flame', att: false, desc: 'Incendeia alvos (dano contínuo).' }),
+  W({ id: 'lever3030', grp: 'Rifles de alavanca', name: 'Winchester .30-30', cal: '.30-30', dm: 1, delay: .5, mag: 7, reload: .4, reloadType: 'shell', spread: .02, speed: 1350, range: 1000, len: 30, noise: 580, kick: 2.4, push: .7, snd: 'rifle', rc: 'lvr', price: 600, shape: SH(8, 14, 5, 18, 2.6, '#3a3a3a', { sc: '#6a4524', wood: true }), desc: 'A carabina do velho oeste.' }),
 
   /* ===== CORPO A CORPO ===== */
   // range/arc em px/rad · swing = duração da animação · back = multiplicador de golpe pelas costas
@@ -398,6 +443,14 @@ const ETYPES = {
   boss:    { label: 'Comandante', hp: 650, speed: 88, r: 16, dmg: 15, pen: 3, burst: 8, bdelay: .08, pmin: 1.0, pmax: 1.6, spread: .08, range: 660, vision: 640, pref: 300, bspeed: 700, color: '#6b1f2a', vest: '#3a0f16', helmet: '#240a0f', stripe: '#ffd24a', weapon: 'ak47', scale: 1.4,  credit: 500, armor: .45, helm: .4,  cls: 3.5 },
   rusher:  { label: 'Invasor', hp: 55,  speed: 178, r: 12, dmg: 0,  pen: 0, melee: true, mdmg: 22, mrange: 34, mdelay: .75, burst: 0, bdelay: 1, pmin: 1, pmax: 1, spread: 0, range: 0, vision: 520, pref: 20, bspeed: 0, color: '#7a4a2a', vest: '#4a2c18', helmet: '#5a3a20', stripe: '#e0e0e0', weapon: 'machete', scale: 1, credit: 30, armor: 0, helm: 0, cls: 0 },
 };
+ETYPES.sniper = { label: 'Sniper', hp: 45, speed: 88, r: 11, dmg: 38, pen: 3.8, burst: 1, bdelay: 1, pmin: 1.8, pmax: 2.8, spread: .012, range: 1100, vision: 900, pref: 700, bspeed: 1700, color: '#3a4a30', vest: '#26331f', helmet: '#2c3a24', stripe: '#9ad86a', weapon: 'r700', scale: 1, credit: 55, armor: 0, helm: 0, cls: 0, laser: true, drop: 'sniper' };
+ETYPES.shotgunner = { label: 'Escopeteiro', hp: 80, speed: 104, r: 12, dmg: 7, pellets: 7, pen: .8, burst: 2, bdelay: .5, pmin: 1.2, pmax: 2, spread: .24, range: 300, vision: 500, pref: 130, bspeed: 820, color: '#7a3a3a', vest: '#4a2424', helmet: '#5a2c2c', stripe: '#ff7a5a', weapon: 'spas', scale: 1.05, credit: 35, armor: .15, helm: .1, cls: 1, drop: 'shell' };
+ETYPES.grenadier = { label: 'Granadeiro', hp: 90, speed: 92, r: 12, dmg: 8, pen: 1.8, burst: 3, bdelay: .16, pmin: 1.3, pmax: 2.2, spread: .09, range: 520, vision: 560, pref: 330, bspeed: 620, color: '#4a5a34', vest: '#2e3a20', helmet: '#37452a', stripe: '#ffb030', weapon: 'm79', scale: 1.05, credit: 45, armor: .2, helm: .2, cls: 2, nades: ['frag', 'frag', 'molotov', 'flash', 'smoke'], gcd: [5, 9], drop: 'grenade' };
+ETYPES.medic = { label: 'Médico', hp: 55, speed: 116, r: 11, dmg: 6, pen: 1.2, burst: 4, bdelay: .12, pmin: .9, pmax: 1.5, spread: .09, range: 420, vision: 520, pref: 240, bspeed: 620, color: '#d8d8d4', vest: '#b8b8b0', helmet: '#e8e8e4', stripe: '#d83a3a', weapon: 'mp7', scale: .98, credit: 40, armor: .05, helm: 0, cls: 0, heal: true, drop: 'med' };
+ETYPES.rocketeer = { label: 'Antitanque', hp: 100, speed: 80, r: 13, dmg: 85, pen: 3, burst: 1, bdelay: 1, pmin: 3, pmax: 4.5, spread: .03, range: 900, vision: 640, pref: 450, bspeed: 520, color: '#5a4a2a', vest: '#3a2e18', helmet: '#463a20', stripe: '#ff8a3a', weapon: 'rpg', scale: 1.1, credit: 70, armor: .2, helm: .15, cls: 2, rocket: true, rocketR: 100, drop: 'rocket' };
+ETYPES.commando = { label: 'Comando', hp: 120, speed: 118, r: 12, dmg: 14, pen: 3.2, burst: 4, bdelay: .1, pmin: .8, pmax: 1.3, spread: .05, range: 700, vision: 640, pref: 300, bspeed: 700, color: '#2a2a30', vest: '#16161a', helmet: '#1c1c22', stripe: '#8fdcff', weapon: 'scar', scale: 1.05, credit: 80, armor: .3, helm: .3, cls: 3, drop: 'elite' };
+const EXTRA_TYPES = ['sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando'];
+const ALL_TYPES = [['soldier', 'Soldado'], ['scout', 'Batedor'], ['heavy', 'Pesado'], ['rusher', 'Invasor (corpo a corpo)'], ['sniper', 'Sniper (atira através de paredes de casa)'], ['shotgunner', 'Escopeteiro'], ['grenadier', 'Granadeiro'], ['medic', 'Médico'], ['rocketeer', 'Antitanque (foguete)'], ['commando', 'Comando']];
 const PLAYER_LOOK = { body: '#3f6f98', vest: '#26425a', helmet: '#2d4e6e', stripe: '#8fdcff' };
 
 /* ---------- Modos de jogo ---------- */
@@ -418,7 +471,7 @@ const MISSION_NAMES = ['FALCÃO NEGRO', 'LANÇA SILENCIOSA', 'TEMPESTADE DE AÇO
 const SAVE_KEY = 'operacao_tatica_v4';
 const DEFAULT_CUSTOM = () => ({
   weapons: ['ar15', 'm9', 'knife'], attach: {}, gear: { head: 'h_mich', body: 'v_med', legs: 'b_tac', back: 'bp_m', eyes: null }, squad: ['p_rifle'],
-  opts: { mode: 'kill', time: 'random', enemies: 10, level: 1, hpMul: 1, types: ['soldier', 'scout', 'heavy', 'rusher'], infAmmo: false, shadow: 40 },
+  opts: { mode: 'kill', time: 'random', enemies: 10, level: 1, hpMul: 1, types: ['soldier', 'scout', 'heavy', 'rusher', 'sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando'], infAmmo: false, shadow: 40 },
 });
 function defaultSave() {
   return {
@@ -440,4 +493,5 @@ function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)
 const SAVE = loadSave();
 if (!SAVE.custom) SAVE.custom = DEFAULT_CUSTOM();
 if (!SAVE.settings) SAVE.settings = { shadow: 45 };
+if (SAVE.custom.opts && !SAVE.custom.opts.v6) { SAVE.custom.opts.v6 = 1; for (const t of ['sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando']) if (!SAVE.custom.opts.types.includes(t)) SAVE.custom.opts.types.push(t); }
 let LD = SAVE;   // loadout ativo (campanha ou partida personalizada)

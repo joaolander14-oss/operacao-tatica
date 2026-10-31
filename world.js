@@ -157,25 +157,28 @@ function genWorld(seed) {
       ];
       for (const s of sides) for (let i = ri(0, 1); i < s.n; i += step) {
         const t = s.at(i);
-        if (g[t] !== K.WALL || g[t - s.nb] === K.DOOR || g[t + s.nb] === K.DOOR) continue;
+        if (!isWallK(g[t]) || g[t - s.nb] === K.DOOR || g[t + s.nb] === K.DOOR) continue;
         g[t] = K.WINDOW;
       }
     };
 
-    for (let tries = 0; tries < 500 && bl.length < 11; tries++) {
-      const office = rnd() < .5;
-      const w = office ? ri(9, 13) : ri(6, 8), h = office ? ri(7, 10) : ri(5, 7), x = ri(3, MW - w - 3), y = ri(3, MH - h - 3);
+    for (let tries = 0; tries < 500 && bl.length < 12; tries++) {
+      const mr = rnd(), model = mr < .3 ? 'office' : mr < .5 ? 'casa' : mr < .63 ? 'cabana' : mr < .75 ? 'bangalo' : mr < .86 ? 'galpao' : mr < .95 ? 'sobrado' : 'garagem';
+      const office = model === 'office', two = office || model === 'sobrado', wide = office || model === 'galpao' || model === 'garagem';
+      const SZ = { office: [9, 13, 7, 10], casa: [6, 8, 5, 7], cabana: [5, 6, 5, 6], bangalo: [8, 10, 6, 8], galpao: [10, 13, 6, 8], sobrado: [7, 9, 6, 8], garagem: [5, 6, 4, 5] }[model];
+      const wallK = office ? K.WALL : (model === 'cabana' || model === 'galpao') ? K.WOODW : K.BRICK;
+      const w = ri(SZ[0], SZ[1]), h = ri(SZ[2], SZ[3]), x = ri(3, MW - w - 3), y = ri(3, MH - h - 3);
       if (x < 14 && y + h > MH - 14) continue;
       if (x + w > MW - 14 && y < 14) continue;
       if (!spaceFree(x, y, w, h, 3)) continue;
-      const b = { x, y, w, h, kind: office ? 'office' : 'house', floors: office ? 2 : 1, roofA: 1, stairs: null };
+      const b = { x, y, w, h, kind: office ? 'office' : 'house', model, floors: two ? 2 : 1, roofA: 1, stairs: null };
       const bi = bl.length; bl.push(b);
       for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
         const edge = xx === x || xx === x + w - 1 || yy === y || yy === y + h - 1;
-        g0[idx(xx, yy)] = edge ? K.WALL : K.FLOOR; f0[idx(xx, yy)] = office ? 1 : 3; bAt[idx(xx, yy)] = bi;
+        g0[idx(xx, yy)] = edge ? wallK : K.FLOOR; f0[idx(xx, yy)] = wide ? 1 : 3; bAt[idx(xx, yy)] = bi;
       }
       // portas externas
-      const dw = office ? 2 : 1;
+      const dw = wide ? 2 : 1;
       for (const s of shuffle([0, 1, 2, 3]).slice(0, ri(1, 2))) {
         if (s < 2) { const dx = ri(x + 1, x + w - 1 - dw), dy = s === 0 ? y : y + h - 1; for (let k = 0; k < dw; k++) { g0[idx(dx + k, dy)] = K.DOOR; dl.push({ idx: idx(dx + k, dy), fl: 0, open: false, t: 0 }); } }
         else { const dy = ri(y + 1, y + h - 1 - dw), dx = s === 2 ? x : x + w - 1; for (let k = 0; k < dw; k++) { g0[idx(dx, dy + k)] = K.DOOR; dl.push({ idx: idx(dx, dy + k), fl: 0, open: false, t: 0 }); } }
@@ -196,10 +199,10 @@ function genWorld(seed) {
         const gx = ri(x + 1, x + w - 2); g[idx(gx, p)] = K.DOOR; dl.push({ idx: idx(gx, p), fl: floorIdx, open: false, t: 0 });
         return p;
       };
-      if (w >= 10) px = partition(g0, 0, true); else if (h >= 8 || (w >= 7 && !office)) { if (w >= 7 && !office && h < 8) px = partition(g0, 0, true); else py = partition(g0, 0, false); }
+      if (model === 'cabana' || model === 'galpao' || model === 'garagem') { /* ambiente único */ } else if (w >= 10) px = partition(g0, 0, true); else if (h >= 8 || (w >= 7 && !office)) { if (w >= 7 && !office && h < 8) px = partition(g0, 0, true); else py = partition(g0, 0, false); }
 
       // escada (apenas prédios): dois tiles lado a lado
-      if (office) {
+      if (two) {
         for (let k = 0; k < 40 && !b.stairs; k++) {
           const sx = ri(x + 2, x + w - 4), sy = ri(y + 2, y + h - 3);
           if (px !== null && (Math.abs(sx - px) <= 1 || Math.abs(sx + 1 - px) <= 1)) continue;
@@ -209,7 +212,7 @@ function genWorld(seed) {
         if (!b.stairs) b.floors = 1;
       }
       const nearStairs = (cx, cy) => b.stairs && cx >= b.stairs.x - 1 && cx <= b.stairs.x + 2 && Math.abs(cy - b.stairs.y) <= 1;
-      for (let k = 0, nc = ri(1, 3); k < nc; k++) {
+      for (let k = 0, nc = model === 'galpao' ? ri(4, 8) : model === 'garagem' ? ri(1, 2) : ri(1, 3); k < nc; k++) {
         const cx = ri(x + 2, x + w - 3), cy = ri(y + 2, y + h - 3);
         if (px !== null && Math.abs(cx - px) <= 1) continue;
         if (py !== null && Math.abs(cy - py) <= 1) continue;
@@ -221,7 +224,7 @@ function genWorld(seed) {
       if (b.floors === 2) {
         for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
           const edge = xx === x || xx === x + w - 1 || yy === y || yy === y + h - 1;
-          g1[idx(xx, yy)] = edge ? K.WALL : K.FLOOR;
+          g1[idx(xx, yy)] = edge ? wallK : K.FLOOR;
         }
         placeWindows(g1, b, 3);
         let px1 = null, py1 = null;
@@ -279,7 +282,8 @@ function genWorld(seed) {
    ===================================================================== */
 const in2F = (x, y) => { if (x < 0 || y < 0 || x >= MW || y >= MH) return false; const b = bldAt[y * MW + x]; return b >= 0 && blds[b].floors === 2; };
 const tileK = (x, y, fl) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 0 : fl ? (in2F(x, y) ? grid1[y * MW + x] : 0) : grid0[y * MW + x];
-const wallish = k => k === K.WALL || k === K.WINDOW || k === K.DOOR || k === K.PART || k === K.WINBROKEN || k === K.DOOROPEN;
+const isWallK = k => k === K.WALL || k === K.BRICK || k === K.WOODW;
+const wallish = k => k === K.WALL || k === K.BRICK || k === K.WOODW || k === K.WINDOW || k === K.DOOR || k === K.PART || k === K.WINBROKEN || k === K.DOOROPEN;
 
 function drawFloorTile(c, x, y, fl) {
   const px = x * T, py = y * T, h = hash(x, y);
@@ -315,9 +319,11 @@ function drawFloorTile(c, x, y, fl) {
 function drawSolidTile(c, x, y, kind, fl) {
   const px = x * T, py = y * T;
   const horiz = wallish(tileK(x - 1, y, fl)) && wallish(tileK(x + 1, y, fl));
+  const bm = bldAt[y * MW + x] >= 0 && blds[bldAt[y * MW + x]] ? blds[bldAt[y * MW + x]].model : 'office';
   const wallBase = () => {
-    c.fillStyle = '#5b5f65'; c.fillRect(px, py, T, T);
-    c.fillStyle = '#6f747b'; c.fillRect(px + 2, py + 2, T - 4, T - 4);
+    const wood = bm === 'cabana' || bm === 'galpao', brick = !wood && bm !== 'office';
+    c.fillStyle = wood ? '#6a4a28' : brick ? '#6b3a2a' : '#5b5f65'; c.fillRect(px, py, T, T);
+    c.fillStyle = wood ? '#a57a48' : brick ? '#9a5a40' : '#6f747b'; c.fillRect(px + 2, py + 2, T - 4, T - 4);
   };
   if (kind === K.WALL) {
     wallBase();
@@ -330,6 +336,24 @@ function drawSolidTile(c, x, y, kind, fl) {
     c.stroke();
     c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(px + 2, py + 2, T - 4, 2);
     c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(px + 2, py + T - 4, T - 4, 2);
+  } else if (kind === K.BRICK) {
+    wallBase();
+    c.strokeStyle = 'rgba(40,15,8,.5)'; c.lineWidth = 1; c.beginPath();
+    const rh = (T - 4) / 4;
+    for (let r = 0; r < 4; r++) {
+      const yy = py + 2 + r * rh; if (r) { c.moveTo(px + 2, yy); c.lineTo(px + T - 2, yy); }
+      for (let xx = px + 2 + ((r + x + y) % 2 ? 10 : 0) + 10; xx < px + T - 2; xx += 20) { c.moveTo(xx, yy); c.lineTo(xx, yy + rh); }
+    }
+    c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(px + 2, py + 2, T - 4, 2);
+    c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(px + 2, py + T - 4, T - 4, 2);
+  } else if (kind === K.WOODW) {
+    wallBase();
+    c.strokeStyle = 'rgba(50,28,8,.55)'; c.lineWidth = 1; c.beginPath();
+    for (let i = 1; i < 4; i++) { c.moveTo(px + 2, py + 2 + i * 9); c.lineTo(px + T - 2, py + 2 + i * 9); }
+    c.stroke();
+    c.fillStyle = 'rgba(40,20,5,.5)'; for (let i = 0; i < 4; i++) { c.fillRect(px + 5, py + 6 + i * 9, 1.6, 1.6); c.fillRect(px + T - 7, py + 6 + i * 9, 1.6, 1.6); }
+    c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(px + 2, py + 2, T - 4, 2);
   } else if (kind === K.CRATE) {
     c.fillStyle = '#5e4220'; c.fillRect(px + 2, py + 2, T - 4, T - 4);
     c.fillStyle = '#a97f40'; c.fillRect(px + 5, py + 5, T - 10, T - 10);
@@ -386,14 +410,14 @@ function redrawRegion(x0, y0, x1, y1, fl) {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!fl || in2F(x, y)) drawFloorTile(c, x, y, fl);
   if (!fl) {
     c.fillStyle = 'rgba(0,0,0,.3)';
-    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) { const k = tileK(x, y, 0); if (k === K.WALL || k === K.CRATE || k === K.PART) c.fillRect(x * T + 4, y * T + 5, T, T); }
+    for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) { const k = tileK(x, y, 0); if (k === K.WALL || k === K.BRICK || k === K.WOODW || k === K.CRATE || k === K.PART) c.fillRect(x * T + 4, y * T + 5, T, T); }
   }
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = tileK(x, y, fl); if (k) drawSolidTile(c, x, y, k, fl); }
   c.restore();
 }
 function miniTile(x, y) {
   const k = grid0[y * MW + x], f = ftype[y * MW + x];
-  miniStaticX.fillStyle = k === K.WALL ? '#a3a9b0' : k === K.CRATE ? '#b08a4a' : k === K.TREE ? '#1f5a26' : (k === K.WINDOW || k === K.WINBROKEN) ? '#7fb6d8' : k === K.DOOR || k === K.DOOROPEN ? '#8a5a2b' : k === K.PART ? '#8a867a' : (k === K.STAIRUP) ? '#ffd36a' : f === 1 ? '#5a5d56' : f === 2 ? '#5a4d34' : f === 3 ? '#7a5a38' : '#33452b';
+  miniStaticX.fillStyle = k === K.WALL ? '#a3a9b0' : k === K.BRICK ? '#a0614a' : k === K.WOODW ? '#a57a48' : k === K.CRATE ? '#b08a4a' : k === K.TREE ? '#1f5a26' : (k === K.WINDOW || k === K.WINBROKEN) ? '#7fb6d8' : k === K.DOOR || k === K.DOOROPEN ? '#8a5a2b' : k === K.PART ? '#8a867a' : (k === K.STAIRUP) ? '#ffd36a' : f === 1 ? '#5a5d56' : f === 2 ? '#5a4d34' : f === 3 ? '#7a5a38' : '#33452b';
   miniStaticX.fillRect(x * MINI_S, y * MINI_S, MINI_S, MINI_S);
 }
 
@@ -403,7 +427,8 @@ function makeRoof(b, seed) {
   cv.width = W + o * 2; cv.height = H + o * 2;
   const c = cv.getContext('2d'), r = mulberry32(seed);
   if (b.kind === 'house') {
-    const col = ['#8a3f2e', '#6b4a3a', '#7a4a2a', '#5a4a52'][Math.floor(r() * 4)];
+    const mdl = b.model || 'casa';
+    const col = mdl === 'cabana' ? '#5a4030' : mdl === 'galpao' ? '#6a7480' : mdl === 'bangalo' ? '#8a7a5c' : mdl === 'sobrado' ? '#4a525c' : mdl === 'garagem' ? '#7a6a58' : ['#8a3f2e', '#6b4a3a', '#7a4a2a', '#5a4a52'][Math.floor(r() * 4)];
     c.fillStyle = col; c.fillRect(0, 0, cv.width, cv.height);
     c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1;
     for (let y = 6; y < cv.height; y += 9) { c.beginPath(); c.moveTo(0, y); c.lineTo(cv.width, y); c.stroke(); for (let x = (y / 9 % 2) * 8; x < cv.width; x += 16) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 9); c.stroke(); } }

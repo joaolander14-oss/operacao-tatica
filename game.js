@@ -134,10 +134,10 @@ function sparks(x, y, ang, color = '#ffd36a', n = 5) {
 }
 function impactFx(b, kind) {
   const ang = Math.atan2(b.dy, b.dx);
-  if (kind === K.WALL) {
+  if (kind === K.WALL || kind === K.BRICK) {
     sparks(b.x, b.y, ang, '#ffe08a', 4);
     for (let i = 0; i < 4; i++) { const a = ang + Math.PI + rand(-1, 1); spawnPart({ x: b.x, y: b.y, vx: Math.cos(a) * rand(20, 90), vy: Math.sin(a) * rand(20, 90), life: rand(.4, .9), size: rand(3, 6), grow: 6, color: 'rgba(190,190,180,1)', drag: 3, kind: 'smoke' }); }
-  } else if (kind === K.CRATE || kind === K.DOOR || kind === K.PART) {
+  } else if (kind === K.CRATE || kind === K.DOOR || kind === K.PART || kind === K.WOODW) {
     for (let i = 0; i < 5; i++) { const a = ang + Math.PI + rand(-1, 1); spawnPart({ x: b.x, y: b.y, vx: Math.cos(a) * rand(40, 160), vy: Math.sin(a) * rand(40, 160), life: rand(.3, .7), size: rand(1.5, 3), color: kind === K.PART ? '#d8d4c8' : '#b88a4c', drag: 3, kind: 'dot' }); }
   } else if (kind === K.TREE) sparks(b.x, b.y, ang, '#6fbf5e', 4);
 }
@@ -164,7 +164,7 @@ function explode(x, y, radius, dmg, L) {
     if (t.L !== L) f *= .35; else if (!hasLOS(x, y, t.x, t.y, L)) f *= .35;
     blastHit(t, dmg * (.25 + .75 * f) * (isPlayer ? .5 : 1), Math.atan2(t.y - y, t.x - x));
   };
-  for (const e of enemies) if (!e.dead) blast(e, false);
+  if (!G.eSide) for (const e of enemies) if (!e.dead && !(MP.on && e.mpId != null && mpFriend(e.mpId))) { if (e.mpId != null) e.lastW = 'boom'; blast(e, false); }
   for (const a of allies) { if (a.dead || a.bound) continue; const d = Math.hypot(a.x - x, a.y - y); if (d < radius + a.r) damageAlly(a, dmg * .5 * (1 - d / (radius + a.r)), Math.atan2(a.y - y, a.x - x)); }
   if (!player.dead && (!MP.on || mpHurtFrom(G.src))) blast(player, true);
 
@@ -262,6 +262,7 @@ const PART_LBL = { head: 'CABEÇA', torso: 'TRONCO', armL: 'BRAÇO', armR: 'BRA�
 function applyHit(t, part, dmg, o) {
   if (t.dead) return false;
   if (t === player && MP.on && G.protT > 0) return false;
+  if (t.mpId != null) t.lastBy = G.src != null ? G.src : MP.myId;
   const P = t.parts[part];
   const d = armorAbsorb(t, part, dmg * PART_MUL[part], o.pen || 0);
   if (d <= .01) { if (t === player) sfx('armor'); return false; }
@@ -540,9 +541,10 @@ function quickMelee() {
 function meleeStrike(att, w, ang) {
   const hits = [];
   for (const e of enemies) {
-    if (e.dead || e.L !== att.L) continue;
+    if (e.dead || e.L !== att.L || (MP.on && e.mpId != null && mpFriend(e.mpId))) continue;
     const d = Math.hypot(e.x - att.x, e.y - att.y);
     if (d > w.range + e.r) continue;
+    if (e.mpId != null) e.lastW = w.id;
     if (Math.abs(angDiff(Math.atan2(e.y - att.y, e.x - att.x), ang)) > w.arc / 2 + Math.min(.6, e.r / Math.max(d, 1))) continue;
     hits.push({ e, d });
   }
@@ -580,6 +582,7 @@ function meleeStrike(att, w, ang) {
 }
 
 function hurtPlayerBullet(b) {
+  if (MP.on && b.owner != null) { if (mpFriend(b.owner)) return; G.lastHitBy = b.owner; G.lastHitW = b.id; G.lastHitT = G.time; }
   const part = rollPart(player, b.x, b.y);
   applyHit(player, part, b.dmg, { pen: b.pw, ang: Math.atan2(b.dy, b.dx) });
 }
@@ -636,7 +639,7 @@ function throwGrenade() {
 }
 function flashBang(g) {
   sfx('explosion'); flashes.push({ x: g.x, y: g.y, r: 150, life: .3, max: .3, L: g.L });
-  for (const e of enemies) {
+  if (!G.eSide) for (const e of enemies) {
     if (e.dead || e.L !== g.L) continue;
     const d = Math.hypot(e.x - g.x, e.y - g.y);
     if (d < 210 && hasLOS(g.x, g.y, e.x, e.y, g.L)) { e.stun = Math.max(e.stun, 3.8 * (1 - d / 280)); e.mark = 1.5; e.markType = '?'; }
@@ -656,15 +659,15 @@ function updateGrenades(dt) {
     g.x = nx; g.y = ny;
     if (g.t > 0) continue;
     grenades.splice(i, 1);
-    G.src = g.owner;
+    G.src = g.owner; G.eSide = g.by === 'e';
     switch (g.kind) {
       case 'flash': flashBang(g); break;
       case 'smoke': smokes.push({ x: g.x, y: g.y, r: 72, t: 14, L: g.L }); sfx('throw'); break;
-      case 'molotov': fires.push({ x: g.x, y: g.y, r: 62, t: 6.5, tick: 0, L: g.L, owner: g.owner }); sfx('glass'); makeNoise(g.x, g.y, 400); break;
+      case 'molotov': fires.push({ x: g.x, y: g.y, r: 62, t: 6.5, tick: 0, L: g.L, owner: g.owner, by: g.by }); sfx('glass'); makeNoise(g.x, g.y, 400); break;
       case 'flare': flares.push({ x: g.x, y: g.y, t: 25, L: g.L }); sfx('throw'); break;
       default: explode(g.x, g.y, 115, 115, g.L);
     }
-    G.src = null;
+    G.src = null; G.eSide = false;
   }
 }
 // fumaça, fogo, sinalizadores e minas
@@ -680,7 +683,7 @@ function updateThrowFx(dt) {
     if (Math.random() < dt * 40) spawnPart({ x: f.x + rand(-f.r, f.r) * .8, y: f.y + rand(-f.r, f.r) * .8, vx: rand(-15, 15), vy: rand(-40, -10), life: rand(.3, .6), size: rand(5, 9), color: pickFire(), kind: 'fire', L: f.L });
     if (f.tick <= 0) {
       f.tick = .4;
-      for (const e of enemies) if (!e.dead && e.L === f.L && Math.hypot(e.x - f.x, e.y - f.y) < f.r + e.r) e.burn = Math.max(e.burn, 2.5);
+      if (!f.by) for (const e of enemies) if (!e.dead && e.L === f.L && Math.hypot(e.x - f.x, e.y - f.y) < f.r + e.r) e.burn = Math.max(e.burn, 2.5);
       const p = player;
       if (!p.dead && p.L === f.L && Math.hypot(p.x - f.x, p.y - f.y) < f.r + p.r && (!MP.on || mpHurtFrom(f.owner))) { if (MP.on) mpNoteHit(f.owner, 'fire'); applyHit(p, ['torso', 'legL', 'legR', 'armL', 'armR'][(Math.random() * 5) | 0], 3.2, { pen: 9, ang: 0 }); }
       for (const a of allies) if (!a.dead && !a.bound && a.L === f.L && Math.hypot(a.x - f.x, a.y - f.y) < f.r + a.r) damageAlly(a, 4, 0);
@@ -1081,6 +1084,7 @@ function makeNoise(x, y, radius) {
   }
 }
 function patrolTo(e) {
+  if (e.mpId != null && Math.random() < .65) { const hs = mpHumans().filter(h => !(mpTdm() && mpTargetTeam(h) === e.team)); if (hs.length) { const h = hs[(Math.random() * hs.length) | 0]; e.home = { x: h.x + rand(-140, 140), y: h.y + rand(-140, 140) }; } }
   const fl = e.L >= 0 ? 1 : 0;
   for (let i = 0; i < 10; i++) {
     const tx = Math.floor(e.home.x / T) + Math.round(rand(-8, 8)), ty = Math.floor(e.home.y / T) + Math.round(rand(-8, 8));
@@ -1103,12 +1107,23 @@ function updateEnemy(e, dt) {
   if (e.kvx || e.kvy) { moveEntity(e, e.kvx * dt, e.kvy * dt); const dk = Math.exp(-dt * 9); e.kvx *= dk; e.kvy *= dk; }
   if (e.stun > 0) { e.stun -= dt; return; }
   const fx = e.fx, spdMul = fx.speed;
+  if (ty.heal) {
+    e.healT = (e.healT == null ? rand(2, 4) : e.healT) - dt;
+    if (e.healT <= 0) {
+      e.healT = 5;
+      let tgt = null;
+      for (const o of enemies) if (o !== e && !o.dead && o.L === e.L && o.hp < o.maxHp * .75 && Math.hypot(o.x - e.x, o.y - e.y) < 170 && (!tgt || o.hp < tgt.hp)) tgt = o;
+      if (!tgt && e.hp < e.maxHp * .5 && !e.selfHeal) { tgt = e; e.selfHeal = true; }
+      if (tgt) { healAll(tgt, .4); addText(tgt.x, tgt.y - tgt.r - 14, '+ CURADO', '#8be36a', 11); sfx('heal'); }
+    }
+  }
 
   e.senseT -= dt;
   if (e.senseT <= 0) {
     e.senseT = .12 + Math.random() * .05;
     let best = null, bd = 1e9;
     for (const c of TARGETS) {
+      if (e.mpId != null && mpTdm() && mpTargetTeam(c) === e.team) continue;
       if (!canView(e.L, c.L, c.x, c.y)) continue;
       const d = Math.hypot(c.x - e.x, c.y - e.y);
       if (d >= ty.vision || d >= bd) continue;
@@ -1155,7 +1170,8 @@ function updateEnemy(e, dt) {
           e.ang = turnToward(e.ang, toT, dt * 10);
           if (e.mcd <= 0 && Math.abs(angDiff(toT, e.ang)) < .5) {
             e.mcd = ty.mdelay; e.swing = .25; sfx('melee');
-            if (tg === player) applyHit(player, rollMeleePart(), ty.mdmg, { pen: 1, ang: toT });
+            if (tg === player) { if (MP.on && e.mpId != null) { G.lastHitBy = e.mpId; G.lastHitW = ty.weapon; G.lastHitT = G.time; } applyHit(player, rollMeleePart(), ty.mdmg, { pen: 1, ang: toT }); }
+            else if (tg.isRemote) mpBotMelee(e, tg, toT);
             else damageAlly(tg, ty.mdmg, toT);
           }
         }
@@ -1176,6 +1192,10 @@ function updateEnemy(e, dt) {
         const sa = toT + Math.PI / 2 * e.strafeDir;
         moveEntity(e, Math.cos(sa) * spd * .5 * dt, Math.sin(sa) * spd * .5 * dt);
         e.moving = true; e.walk += spd * .5 * dt * .12;
+      }
+      if (ty.nades && !fx.armsDead) {
+        e.gcd = (e.gcd == null ? rand(2, 5) : e.gcd) - dt;
+        if (e.gcd <= 0 && e.react <= 0 && dist > 130 && dist < 470) { enemyThrow(e, tg); e.gcd = rand(ty.gcd[0], ty.gcd[1]); }
       }
       if (!fx.armsDead && e.react <= 0 && Math.abs(angDiff(toT, e.ang)) < .25 && dist < ty.range) {
         if (e.burstLeft > 0) {
@@ -1202,23 +1222,54 @@ function updateEnemy(e, dt) {
 }
 
 function enemyShoot(e) {
-  const ty = e.ty, a = e.ang + (Math.random() - .5) * 2 * (ty.spread + e.fx.aim);
-  bullets.push({
-    x: e.x + Math.cos(e.ang) * (e.r + 6), y: e.y + Math.sin(e.ang) * (e.r + 6), dx: Math.cos(a), dy: Math.sin(a),
-    speed: ty.bspeed * PACE.bullet, dmg: ty.dmg, range: ty.range + 150, dist: 0, from: 'e', L: e.L, pw: ty.pen, tx: -1, ty: -1, col: '#ff7a50',
-  });
-  e.flash = .06; sfx('enemyShot', clamp(1 - Math.hypot(e.x - player.x, e.y - player.y) / 900, 0, 1));
+  const ty = e.ty, n = ty.pellets || 1, made = [];
+  for (let i = 0; i < n; i++) {
+    const a = n > 1 ? e.ang + (i / (n - 1) - .5) * ty.spread * 2 + rand(-.03, .03) : e.ang + (Math.random() - .5) * 2 * (ty.spread + e.fx.aim);
+    const b = {
+      x: e.x + Math.cos(e.ang) * (e.r + 6), y: e.y + Math.sin(e.ang) * (e.r + 6), dx: Math.cos(a), dy: Math.sin(a),
+      speed: ty.bspeed * PACE.bullet * (n > 1 ? rand(.9, 1.05) : 1), dmg: ty.dmg, range: ty.range + 150, dist: 0, from: 'e', L: e.L, pw: ty.pen, tx: -1, ty: -1, col: ty.rocket ? '#ffb050' : '#ff7a50',
+      id: ty.weapon, owner: e.mpId, rocket: !!ty.rocket, radius: ty.rocketR || 0,
+    };
+    bullets.push(b); made.push(b);
+  }
+  e.flash = .06;
+  const vol = clamp(1 - Math.hypot(e.x - player.x, e.y - player.y) / 900, 0, 1);
+  sfx(ty.rocket ? 'rpg' : n > 1 ? 'shotgun' : 'enemyShot', vol);
+  if (MP.on && MP.isHost && e.mpId != null) mpSendShots(made, e.mpId);
+}
+// granadeiro arremessa granadas variadas no alvo
+function enemyThrow(e, tg) {
+  const kind = e.ty.nades[(Math.random() * e.ty.nades.length) | 0];
+  const dist = clamp(Math.hypot(tg.x - e.x, tg.y - e.y), 90, 440), a = Math.atan2(tg.y - e.y, tg.x - e.x) + rand(-.08, .08), v = dist * 2.2;
+  const gr = { x: e.x + Math.cos(a) * 14, y: e.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: TMAP[kind].fuse, kind, L: e.L, by: 'e', owner: e.mpId };
+  grenades.push(gr); sfx('throw'); e.mark = 1; e.markType = '!';
+  if (MP.on && MP.isHost && e.mpId != null) mpSendThrow(gr, false, e.mpId);
+}
+function dropLoot(e) {
+  const ty = e.ty, k = ty.drop, at = { x: e.x, y: e.y, t: Math.random() * 6, L: e.L };
+  const put = o => pickups.push(Object.assign(o, at));
+  if (k && Math.random() < .75) {
+    if (k === 'sniper') put({ type: 'ammo', items: [{ cal: '.308', n: 14 }, { cal: Math.random() < .5 ? '.338' : '6.5', n: 6 }] });
+    else if (k === 'shell') { const c = ['12ga-slug', '12ga-flech', '12ga-dragon', '12ga-rubber', '12ga'][(Math.random() * 5) | 0]; put({ type: 'ammo', items: [{ cal: c, n: CALIBERS[c].pack + 4 }] }); }
+    else if (k === 'grenade') put({ type: 'grenade' });
+    else if (k === 'med') put({ type: 'med' });
+    else if (k === 'rocket') put({ type: 'ammo', items: [{ cal: 'rocket', n: 2 }, { cal: '40mm', n: 4 }] });
+    else if (k === 'elite') { if (Math.random() < .5) put({ type: 'gear', item: randomGear(true) }); else put({ type: 'repair' }); }
+    return;
+  }
+  dropPickup(e.x, e.y, false, e.key === 'heavy' && Math.random() < .25, e.L);
 }
 
 function killEnemy(e, ang, part) {
   if (e.dead) return;
+  if (e.mpId != null && MP.on) { e.dead = true; addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, L: e.L }); addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L }); bloodBurst(e.x, e.y, ang, 14, e.L, true); sfx('kill'); mpBotDied(e); return; }
   e.dead = true; G.kills++; G.earned += e.ty.credit; sfx('kill');
   if (part === 'head') G.heads++;
   addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, L: e.L });
   addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L });
   bloodBurst(e.x, e.y, ang, 14, e.L, true);
   if (e.vip) { dropPickup(e.x, e.y, true, true, e.L); banner('ALVO VIP ELIMINADO'); }
-  else dropPickup(e.x, e.y, false, e.key === 'heavy' && Math.random() < .25, e.L);
+  else dropLoot(e);
 }
 
 /* =====================================================================
@@ -1236,14 +1287,14 @@ function bulletTile(b, tx, ty) {
   impactFx(b, k);
   addHole(b.x, b.y, b.L, k === K.WINDOW ? 'glass' : k === K.DOOR ? 'door' : 'wall');
   if (!pass) return false;
-  b.pw -= m.cost; b.dmg *= Math.max(.35, 1 - .14 * m.cost);
+  b.pw -= m.cost; b.dmg *= Math.max(.25, 1 - .2 * m.cost);      // cada obstáculo atravessado tira parte do dano
   return true;
 }
 function updateBullets(dt) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     let alive = true;
-    G.src = b.from === 'n' ? b.owner : null;
+    G.src = (b.from === 'n' || b.owner != null) ? b.owner : null; G.eSide = b.from === 'e';
     const step = b.speed * dt, n = Math.max(1, Math.ceil(step / 8)), sd = step / n;
     for (let s = 0; s < n && alive; s++) {
       b.x += b.dx * sd; b.y += b.dy * sd; b.dist += sd;
@@ -1252,7 +1303,8 @@ function updateBullets(dt) {
       if (tx !== b.tx || ty !== b.ty) { b.tx = tx; b.ty = ty; if (!bulletTile(b, tx, ty)) { alive = false; break; } }
       if (b.from === 'p') {
         for (const e of enemies) {
-          if (e.dead || e.L !== b.L || (b.hit && b.hit.includes(e))) continue;
+          if (e.dead || e.L !== b.L || (b.hit && b.hit.includes(e)) || (MP.on && e.mpId != null && mpFriend(e.mpId))) continue;
+          if (e.mpId != null) e.lastW = b.id;
           const dx = e.x - b.x, dy = e.y - b.y, rr = e.r + 2;
           if (dx * dx + dy * dy < rr * rr) {
             if (b.rocket) { explode(b.x, b.y, b.radius, b.dmg, b.L); alive = false; break; }
@@ -1285,7 +1337,10 @@ function updateBullets(dt) {
           if (t.L !== b.L) continue;
           const dx = t.x - b.x, dy = t.y - b.y, rr = t.r + 2;
           if (dx * dx + dy * dy < rr * rr) {
-            if (t === player) hurtPlayerBullet(b); else damageAlly(t, b.dmg, Math.atan2(b.dy, b.dx));
+            if (b.rocket) explode(b.x, b.y, b.radius, b.dmg, b.L);
+            else if (t === player) hurtPlayerBullet(b);
+            else if (t.isRemote) mpBotHit(t, b);
+            else damageAlly(t, b.dmg, Math.atan2(b.dy, b.dx));
             alive = false; break;
           }
         }
@@ -1300,7 +1355,7 @@ function updateBullets(dt) {
       spawnPart({ x: b.x - b.dx * 10, y: b.y - b.dy * 10, vx: rand(-20, 20), vy: rand(-20, 20), life: .6, size: 4, grow: 9, color: 'rgba(170,170,170,1)', drag: 2, kind: 'smoke' });
       spawnPart({ x: b.x - b.dx * 8, y: b.y - b.dy * 8, vx: 0, vy: 0, life: .15, size: 4, color: '#ffb030', kind: 'fire' });
     }
-    G.src = null;
+    G.src = null; G.eSide = false;
     if (!alive) bullets.splice(i, 1);
   }
 }
@@ -1406,7 +1461,7 @@ function startWave() {
       if (Math.hypot(px - player.x, py - player.y) > 520 && (player.L >= 0 || !hasLOS(px, py, player.x, player.y, -1))) { s = c; break; }
     }
     if (!s) s = SPOTS[(Math.random() * SPOTS.length) | 0];
-    const r = Math.random(), key = allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier');
+    const r = Math.random(), key = Math.random() < Math.min(.4, .04 * G.wave + .05) ? allowType(EXTRA_TYPES[(Math.random() * EXTRA_TYPES.length) | 0]) : allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier');
     const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, -1);
     enemies.push(e);
     goSearch(e, { x: player.x + rand(-80, 80), y: player.y + rand(-80, 80) }, player.L);
@@ -1513,7 +1568,8 @@ function startMission(mode, level, custom) {
     return s;
   };
   const hv = Math.min(.3, .06 + .04 * level), sc = .2, ru = Math.min(.18, .03 + .02 * level);
-  const rollKey = () => { const r = Math.random(); return allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier'); };
+  const ex = Math.min(.4, .05 + .05 * level);
+  const rollKey = () => { if (Math.random() < ex) return allowType(EXTRA_TYPES[(Math.random() * EXTRA_TYPES.length) | 0]); const r = Math.random(); return allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier'); };
   const cnt = def => (custom && custom.enemies >= 0) ? custom.enemies : def;
   const addE = (key, s, L) => { const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, L); enemies.push(e); return e; };
   const placed = [];
@@ -1632,7 +1688,8 @@ function endMission(won) {
 function update(dt) {
   G.time += dt; G.dt = dt;
   TARGETS = [];
-  if (!player.dead) TARGETS.push(player);
+  if (!player.dead && !(MP.on && G.protT > 0)) TARGETS.push(player);
+  if (MP.on && MP.isHost && MP.botN) for (const r of MP.remotes.values()) if (!r.bot && !r.dead && !r.pr) TARGETS.push(r);
   for (const a of allies) if (!a.dead && !a.bound) TARGETS.push(a);
 
   updatePlayer(dt);

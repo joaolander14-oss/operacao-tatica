@@ -372,12 +372,19 @@ function render() {
     e.heat = sh && trad > 0 && d < trad;
     if (e.visible) {
       const ty = e.ty;
-      drawSoldier(c2, e.x, e.y, e.ang, { body: ty.color, vest: ty.vest, helmet: ty.helmet, stripe: ty.stripe, weapon: ty.weapon, flash: e.flash, recoil: e.flash > 0 ? 1 : 0, walk: e.walk, scale: ty.scale, tint: e.hitT > 0, wound: woundLevel(e), crawl: e.fx.crawl, swing: e.swing > 0 ? 1 - e.swing / .25 : 0 });
+      const lk = e.mpId != null ? mpBotLook(e) : ty;
+      drawSoldier(c2, e.x, e.y, e.ang, { body: lk.color, vest: lk.vest, helmet: lk.helmet, stripe: lk.stripe, weapon: ty.weapon, flash: e.flash, recoil: e.flash > 0 ? 1 : 0, walk: e.walk, scale: ty.scale, tint: e.hitT > 0, wound: woundLevel(e), crawl: e.fx.crawl, swing: e.swing > 0 ? 1 - e.swing / .25 : 0 });
+      if (ty.laser && e.state === 'attack' && e.sees && e.tgt && !e.tgt.dead && e.L === e.tgt.L) {     // mira a laser do sniper
+        const ta = Math.atan2(e.tgt.y - e.y, e.tgt.x - e.x), dl = Math.min(Math.hypot(e.tgt.x - e.x, e.tgt.y - e.y), castRay(e.x, e.y, ta, 1200, e.L));
+        c2.strokeStyle = 'rgba(255,40,40,' + (.25 + .35 * Math.min(1, 1.6 / Math.max(.3, e.pause + .3))) + ')'; c2.lineWidth = 1.3;
+        c2.beginPath(); c2.moveTo(e.x, e.y); c2.lineTo(e.x + Math.cos(ta) * dl, e.y + Math.sin(ta) * dl); c2.stroke();
+      }
       const bw = 26 * ty.scale, ratio = e.hp / e.maxHp;
       if (ratio < .999 || e.vip) {
         c2.fillStyle = 'rgba(0,0,0,.6)'; c2.fillRect(e.x - bw / 2, e.y - e.r - 12, bw, 4);
         c2.fillStyle = ratio > .4 ? '#e5533d' : '#ff2a1a'; c2.fillRect(e.x - bw / 2, e.y - e.r - 12, bw * ratio, 4);
       }
+      if (e.mpId != null) { c2.font = 'bold 10px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle'; c2.strokeStyle = '#000'; c2.lineWidth = 3; c2.fillStyle = mpColor(e.mpId); c2.strokeText(e.name, e.x, e.y - e.r - 20); c2.fillText(e.name, e.x, e.y - e.r - 20); }
       if (e.vip) { c2.font = 'bold 10px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle'; c2.strokeStyle = '#000'; c2.lineWidth = 3; c2.fillStyle = '#ffd24a'; c2.strokeText('★ VIP', e.x, e.y - e.r - 20); c2.fillText('★ VIP', e.x, e.y - e.r - 20); }
       if (e.mark > 0) {
         c2.font = 'bold 20px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle';

@@ -13,6 +13,14 @@ const MP_TEAMS = [
   { name: 'VERMELHO', color: '#ff6a5a', look: { body: '#9a3f36', vest: '#5a221c', helmet: '#6e2e26', stripe: '#ffb0a0' } },
 ];
 const MP_STATE_HP = [1, .7, .42, .15, 0];
+const MP_BOT_NAMES = ['Alfa', 'Bravo', 'Charlie', 'Delta', 'Eco', 'Foxtrot', 'Golf', 'Hotel'];
+const MP_BOT_POOL = {
+  mix: ['soldier', 'soldier', 'scout', 'heavy', 'sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando', 'rusher'],
+  basic: ['soldier', 'scout', 'soldier', 'rusher'], elite: ['commando', 'sniper', 'rocketeer', 'heavy', 'grenadier'],
+  sniper: ['sniper'], shotgun: ['shotgunner', 'rusher'],
+};
+const MP_BOT_LABEL = { mix: 'Variados', basic: 'Básicos', elite: 'Elite', sniper: 'Só snipers', shotgun: 'Escopeteiros e invasores' };
+const MP_BOT_MAX = 8, MP_TOTAL_MAX = 12;
 const mpNum = (v, d = 0) => (typeof v === 'number' && isFinite(v)) ? v : d;
 const mpR = v => Math.round(v * 10) / 10;
 const mpEsc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,7 +31,7 @@ const MP = {
   peer: null, isHost: false, myId: 0, code: '',
   conns: new Map(), hostConn: null, nextId: 1,
   players: new Map(), remotes: new Map(), order: [],
-  cfg: { gm: 'dm', kl: 15, tl: 8, night: false, seed: 0 },
+  cfg: { gm: 'dm', kl: 15, tl: 8, night: false, seed: 0, bots: 0, bt: 'mix' }, botRespawns: [],
   name: '', joinCode: '', status: '', ended: false,
   feed: [], respawns: [], teamScore: [0, 0],
   respawnT: 0, sendT: 0, hudT: 0, lastMsg: '',
@@ -49,7 +57,7 @@ function mpCleanLoad(l) {
   if (l.gear && typeof l.gear === 'object') for (const s of ['head', 'body', 'legs', 'back', 'eyes']) if (GMAP[l.gear[s]]) out.gear[s] = l.gear[s];
   return out;
 }
-function mpSanName(s) { s = String(s || '').replace(/[^\p{L}\p{N} _.\-]/gu, '').trim().slice(0, 14); return s || 'Soldado'; }
+function mpSanName(s, max = 14) { s = String(s || '').replace(/[^\p{L}\p{N} _.\-]/gu, '').trim().slice(0, max); return s || 'Soldado'; }
 function mpSetStatus(s) { MP.status = s; if (!$('mpScreen').classList.contains('hidden')) renderMp(); }
 
 /* ---------- Rede ---------- */
@@ -107,6 +115,7 @@ function mpHostRecv(conn, m) {
     conn._pid = id; MP.conns.set(id, conn);
     MP.players.set(id, { id, name: mpSanName(m.name), team: t0 <= t1 ? 0 : 1, kills: 0, deaths: 0, load: mpCleanLoad(m.load) });
     conn.send({ t: 'welcome', id });
+    mpTrimBots();
     mpBroadcastLobby();
     return;
   }
@@ -122,10 +131,30 @@ function mpHostDrop(conn) {
   const p = MP.players.get(id); MP.players.delete(id); MP.remotes.delete(id);
   mpSend({ t: 'left', id });
   if (p && MP.on) mpFeed(`<b>${mpEsc(p.name)}</b> saiu da partida`);
-  if (!MP.on) mpBroadcastLobby();
+  if (!MP.on) { mpSyncBots(); mpBroadcastLobby(); }
+}
+function mpTrimBots() {
+  let humans = [...MP.players.values()].filter(p => !p.bot).length;
+  const bots = [...MP.players.values()].filter(p => p.bot);
+  while (humans + bots.length > MP_TOTAL_MAX && bots.length) MP.players.delete(bots.pop().id);
+  MP.cfg.bots = [...MP.players.values()].filter(p => p.bot).length;
+}
+// recria os bots da sala conforme a configuração (só o anfitrião)
+function mpSyncBots() {
+  if (!MP.isHost) return;
+  for (const [id, p] of [...MP.players]) if (p.bot) MP.players.delete(id);
+  const humans = [...MP.players.values()];
+  const n = clamp(Math.min(MP.cfg.bots, MP_TOTAL_MAX - humans.length), 0, MP_BOT_MAX), pool = MP_BOT_POOL[MP.cfg.bt] || MP_BOT_POOL.mix;
+  let t0 = humans.filter(p => p.team === 0).length, t1 = humans.length - t0;
+  for (let k = 0; k < n; k++) {
+    const ty = pool[(Math.random() * pool.length) | 0], id = 100 + k, team = t0 <= t1 ? 0 : 1;
+    if (team === 0) t0++; else t1++;
+    MP.players.set(id, { id, name: ETYPES[ty].label + ' ' + MP_BOT_NAMES[k], team, kills: 0, deaths: 0, load: mpCleanLoad(null), bot: true, ty });
+  }
+  MP.cfg.bots = n;
 }
 function mpBroadcastLobby() {
-  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })), cfg: MP.cfg, code: MP.code });
+  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot ? 1 : 0, ty: p.ty })), cfg: MP.cfg, code: MP.code });
   renderMp();
 }
 function mpJoin(code) {
@@ -164,12 +193,14 @@ function mpApplyLobby(m) {
   const next = new Map();
   for (const q of m.players.slice(0, MP_MAX)) {
     const id = q.id | 0, old = MP.players.get(id);
-    next.set(id, { id, name: mpSanName(q.name), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: old ? old.load : mpCleanLoad(null) });
+    const bot = !!q.bot && id >= 100, ty = ETYPES[q.ty] && q.ty !== 'boss' ? q.ty : 'soldier';
+    next.set(id, { id, name: mpSanName(q.name, bot ? 24 : 14), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: old ? old.load : mpCleanLoad(null), bot, ty: bot ? ty : undefined });
   }
   MP.players = next;
   if (m.cfg && typeof m.cfg === 'object') {
     MP.cfg.gm = m.cfg.gm === 'tdm' ? 'tdm' : 'dm';
     MP.cfg.kl = clamp(mpNum(m.cfg.kl, 15) | 0, 3, 100); MP.cfg.tl = clamp(mpNum(m.cfg.tl, 8) | 0, 1, 60); MP.cfg.night = !!m.cfg.night;
+    MP.cfg.bots = clamp(mpNum(m.cfg.bots, 0) | 0, 0, MP_BOT_MAX); MP.cfg.bt = MP_BOT_POOL[m.cfg.bt] ? m.cfg.bt : 'mix';
   }
   if (!MP.on) renderMp();
 }
@@ -189,7 +220,7 @@ function mpHandle(m) {
     case 'st': if (MP.on) mpOnState(m, pl); break;
     case 'sh': if (MP.on) mpOnShots(m, pl); break;
     case 'th': if (MP.on) mpOnThrow(m, pl); break;
-    case 'hit': if (MP.on) mpOnHit(m); break;
+    case 'hit': if (MP.on) { if (m.v != null) { if (MP.isHost) mpOnBotHit(m); } else mpOnHit(m); } break;
     case 'dead': if (MP.on) mpOnDead(m, pl); break;
     case 'pk': if (MP.on) mpOnPick(m); break;
     case 'end': if (m.f === 0) mpFinish(m.r); break;
@@ -198,12 +229,14 @@ function mpHandle(m) {
 
 function mpRemote(id) {
   let r = MP.remotes.get(id);
-  if (!r) { r = { id, x: 0, y: 0, tx: 0, ty: 0, L: -1, a: 0, ta: 0, r: 11, w: null, hp: 100, dead: true, pr: false, cr: false, walk: 0, fl: 0, rec: 0, hitT: 0, showT: 0, lastPart: 'torso', init: false, vis: false, ps: [0, 0, 0, 0, 0, 0], parts: null }; MP.remotes.set(id, r); mpPartsOf(r); }
+  if (!r) { const pp = MP.players.get(id); r = { isRemote: true, bot: !!(pp && pp.bot), id, x: 0, y: 0, tx: 0, ty: 0, L: -1, a: 0, ta: 0, r: 11, w: null, hp: 100, dead: true, pr: false, cr: false, walk: 0, fl: 0, rec: 0, hitT: 0, showT: 0, lastPart: 'torso', init: false, vis: false, ps: [0, 0, 0, 0, 0, 0], parts: null }; MP.remotes.set(id, r); mpPartsOf(r); }
   return r;
 }
 function mpPartsOf(r) { const o = {}; PARTS.forEach((k, i) => { o[k] = { hp: MP_STATE_HP[r.ps[i]] || 0, max: 1 }; }); r.parts = o; }
 function mpOnState(m) {
-  const r = mpRemote(m.f);
+  const rid = (m.b != null && m.f === 0) ? m.b | 0 : m.f;
+  if (!MP.players.get(rid)) return;
+  const r = mpRemote(rid);
   r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
   if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; }
   r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
@@ -213,22 +246,26 @@ function mpOnState(m) {
 function mpSendState() {
   const p = player, w = curW();
   mpSend({ t: 'st', x: mpR(p.x), y: mpR(p.y), L: p.L, a: +p.ang.toFixed(2), w: p.melee ? p.melee.w.id : (w ? w.id : null), h: Math.round(p.hp), d: p.dead ? 1 : 0, pr: G.protT > 0 ? 1 : 0, c: p.fx && p.fx.crawl ? 1 : 0, fl: p.flash > 0 ? 1 : 0, ps: PARTS.map(k => pState(p, k)).join('') });
+  // o anfitrião também envia o estado dos bots
+  if (MP.isHost) for (const e of enemies) if (e.mpId != null && !e.dead) mpSend({ t: 'st', b: e.mpId, x: mpR(e.x), y: mpR(e.y), L: e.L, a: +e.ang.toFixed(2), w: e.ty.weapon, h: Math.max(1, Math.round(e.hp / e.maxHp * 100)), d: 0, pr: 0, c: e.fx && e.fx.crawl ? 1 : 0, fl: e.flash > 0 ? 1 : 0, ps: PARTS.map(k => pState(e, k)).join('') });
 }
 
 // tiros: cada projétil vira um "fantasma" visual/destruidor nos outros clientes
-function mpSendShots(list) {
+function mpSendShots(list, bot) {
   if (!list.length) return;
-  mpSend({ t: 'sh', b: list.map(b => ({ x: mpR(b.x), y: mpR(b.y), dx: +b.dx.toFixed(3), dy: +b.dy.toFixed(3), s: Math.round(b.speed), d: Math.round(b.dmg), r: Math.round(b.range), L: b.L, pw: +b.pw.toFixed(2), id: b.id, ro: b.rocket ? 1 : 0, rad: b.radius || 0, br: b.breaks ? 1 : 0, sp: b.sup ? 1 : 0, fl: b.flame ? 1 : 0, i: b.inc ? 1 : 0, fr: b.fragR || 0, c: b.col })) });
+  mpSend({ t: 'sh', o: bot, b: list.map(b => ({ x: mpR(b.x), y: mpR(b.y), dx: +b.dx.toFixed(3), dy: +b.dy.toFixed(3), s: Math.round(b.speed), d: Math.round(b.dmg), r: Math.round(b.range), L: b.L, pw: +b.pw.toFixed(2), id: b.id, ro: b.rocket ? 1 : 0, rad: b.radius || 0, br: b.breaks ? 1 : 0, sp: b.sup ? 1 : 0, fl: b.flame ? 1 : 0, i: b.inc ? 1 : 0, fr: b.fragR || 0, c: b.col })) });
 }
 function mpOnShots(m, pl) {
   if (!Array.isArray(m.b)) return;
-  const r = mpRemote(m.f), friend = mpFriend(m.f);
+  const own = (m.o != null && m.f === 0) ? m.o | 0 : m.f;
+  if (!MP.players.get(own)) return;
+  const r = mpRemote(own), friend = mpFriend(own);
   let first = null;
   for (const q of m.b.slice(0, 24)) {
     const w = WMAP[q.id]; if (!w) continue;
     const b = {
       x: mpNum(q.x), y: mpNum(q.y), dx: clamp(mpNum(q.dx), -1, 1), dy: clamp(mpNum(q.dy), -1, 1), speed: clamp(mpNum(q.s, 1000), 100, 4000), dmg: clamp(mpNum(q.d, 10), 0, 250),
-      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: m.f, friend, L: clamp(mpNum(q.L, -1) | 0, -1, Math.max(-1, blds.length - 1)), id: q.id, pw: clamp(mpNum(q.pw), 0, 20),
+      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: own, friend, L: clamp(mpNum(q.L, -1) | 0, -1, Math.max(-1, blds.length - 1)), id: q.id, pw: clamp(mpNum(q.pw), 0, 20),
       rocket: !!q.ro, radius: clamp(mpNum(q.rad), 0, 200), breaks: !!q.br, sup: !!q.sp, flame: !!q.fl, inc: !!q.i, stunS: 0, fragR: clamp(mpNum(q.fr), 0, 200), tx: -1, ty: -1, col: typeof q.c === 'string' ? q.c.slice(0, 16) : '#ff7a50', hit: null,
     };
     if (b.rocket && (!w.rocket)) b.rocket = false;
@@ -237,6 +274,7 @@ function mpOnShots(m, pl) {
   if (first) {
     const w = WMAP[first.id], d = Math.hypot(first.x - player.x, first.y - player.y);
     r.fl = .06; r.rec = 1;
+    if (MP.isHost && enemies.length) makeNoise(first.x, first.y, w.noise);
     if (d < 1400) sfx(w.snd || 'rifle', clamp(1.15 - d / 1100, .08, 1) * (w.sup ? .25 : 1));
   }
 }
@@ -253,7 +291,7 @@ function mpBulletVsRemotes(b) {
     if (b.fragR) { explode(b.x, b.y, b.fragR, b.dmg * 1.2, b.L); return true; }
     const part = rollPart({ x: r.x, y: r.y, ang: r.a, r: r.r }, b.x, b.y, WMAP[b.id] && WMAP[b.id].spread < .02 ? .08 : 0);
     G.hits++; G.hitMark = .15; G.hitCol = part === 'head' ? '#ffd24a' : part === 'torso' ? '#ffffff' : '#ff9a1f';
-    mpSendTo(r.id, { t: 'hit', p: part, d: Math.round(b.dmg * 10) / 10, pen: +b.pw.toFixed(2), a: +ang.toFixed(2), w: b.id });
+    mpSendTo(r.bot ? 0 : r.id, { t: 'hit', v: r.bot ? r.id : undefined, p: part, d: Math.round(b.dmg * 10) / 10, pen: +b.pw.toFixed(2), a: +ang.toFixed(2), w: b.id });
     r.hitT = .1; r.showT = 3; r.lastPart = part;
     bloodBurst(r.x, r.y, ang, part === 'head' ? 8 : 4, r.L, false);
     addText(r.x + rand(-6, 6), r.y - r.r - 6, Math.round(b.dmg * PART_MUL[part]), part === 'head' ? '#ffd24a' : '#fff', part === 'head' ? 14 : 12);
@@ -280,20 +318,48 @@ function mpMelee(w, ang) {
     let dmg = w.dmg, part;
     if (behind) { dmg *= w.back || 3; part = Math.random() < .5 ? 'head' : 'torso'; addText(r.x, r.y - r.r - 24, 'ABATE SILENCIOSO', '#ffd24a', 12); }
     else part = rollMeleePart();
-    mpSendTo(r.id, { t: 'hit', p: part, d: dmg, pen: 3, a: +ang.toFixed(2), w: w.id, kb: w.knock || 0 });
+    mpSendTo(r.bot ? 0 : r.id, { t: 'hit', v: r.bot ? r.id : undefined, p: part, d: dmg, pen: 3, a: +ang.toFixed(2), w: w.id, kb: w.knock || 0 });
     sfx('melee'); G.hitMark = .18; G.hitCol = part === 'head' ? '#ffd24a' : '#fff'; G.hits++;
     bloodBurst(r.x, r.y, ang, 8, r.L, true); r.hitT = .1; r.showT = 3; r.lastPart = part;
   }
 }
 // somos o alvo: aplica o dano que o atirador decidiu
 function mpOnHit(m) {
-  if (player.dead || G.protT > 0 || mpFriend(m.f)) return;
+  const by = (m.b != null && m.f === 0) ? m.b | 0 : m.f;
+  if (player.dead || G.protT > 0 || mpFriend(by)) return;
   const part = PARTS.includes(m.p) ? m.p : 'torso', a = mpNum(m.a);
-  G.lastHitBy = m.f; G.lastHitW = WMAP[m.w] ? m.w : null; G.lastHitT = G.time;
+  G.lastHitBy = by; G.lastHitW = WMAP[m.w] ? m.w : null; G.lastHitT = G.time;
   const kb = clamp(mpNum(m.kb), 0, 400);
   if (kb) { player.kvx += Math.cos(a) * kb * 4; player.kvy += Math.sin(a) * kb * 4; }
   applyHit(player, part, clamp(mpNum(m.d), 0, 400), { pen: clamp(mpNum(m.pen), 0, 12), ang: a });
 }
+// o anfitrião aplica nos bots o dano decidido por quem atirou
+function mpOnBotHit(m) {
+  const e = enemies.find(q => q.mpId === (m.v | 0) && !q.dead);
+  if (!e || (mpTdm() && mpTeamOf(m.f) === e.team)) return;
+  const part = PARTS.includes(m.p) ? m.p : 'torso', a = mpNum(m.a);
+  e.lastW = WMAP[m.w] ? m.w : null;
+  G.src = m.f;
+  const killed = applyHit(e, part, clamp(mpNum(m.d), 0, 400), { pen: clamp(mpNum(m.pen), 0, 12), ang: a });
+  G.src = null;
+  if (!killed && e.state !== 'attack') {
+    const r = MP.remotes.get(m.f);
+    e.state = 'attack'; e.react = .3; e.mark = 1; e.markType = '!'; e.tgt = r && !r.dead ? r : player; e.lastKnown = { x: e.tgt.x, y: e.tgt.y }; e.path = null; e.loseT = 0;
+  }
+}
+// bot acerta um jogador humano (o alvo aplica o dano)
+function mpBotHit(t, b) {
+  if (mpFriend(b.owner) || (b.owner != null && mpTdm() && mpTeamOf(b.owner) === mpTeamOf(t.id))) return;
+  const part = rollPart({ x: t.x, y: t.y, ang: t.a, r: t.r }, b.x, b.y);
+  mpSendTo(t.id, { t: 'hit', b: b.owner, p: part, d: Math.round(b.dmg * 10) / 10, pen: +b.pw.toFixed(2), a: +Math.atan2(b.dy, b.dx).toFixed(2), w: b.id });
+}
+function mpBotMelee(e, t, ang) {
+  if (mpTdm() && e.team === mpTeamOf(t.id)) return;
+  mpSendTo(t.id, { t: 'hit', b: e.mpId, p: rollMeleePart(), d: e.ty.mdmg, pen: 1, a: +ang.toFixed(2), w: e.ty.weapon });
+}
+const mpHumans = () => { const a = []; if (!player.dead) a.push(player); for (const r of MP.remotes.values()) if (!r.bot && !r.dead) a.push(r); return a; };
+const mpTargetTeam = c => c === player ? mpTeamOf(MP.myId) : mpTeamOf(c.id);
+function mpBotLook(e) { const t = e.ty; return { color: t.color, vest: t.vest, helmet: t.helmet, stripe: mpTdm() ? MP_TEAMS[e.team & 1].color : t.stripe }; }
 // quem pode nos ferir com explosões/fogo (origem = id do dono)
 function mpHurtFrom(src) {
   if (!MP.on) return true;
@@ -304,15 +370,16 @@ function mpHurtFrom(src) {
 function mpNoteHit(src, w) { if (MP.on && src != null && src !== MP.myId) { G.lastHitBy = src; G.lastHitW = w || 'boom'; G.lastHitT = G.time; } }
 
 // arremessáveis e minas
-function mpSendThrow(g, mine) {
+function mpSendThrow(g, mine, bot) {
   if (mine) mpSend({ t: 'th', k: 'mine', x: mpR(g.x), y: mpR(g.y), a: +g.ang.toFixed(2), L: g.L });
-  else mpSend({ t: 'th', k: g.kind, x: mpR(g.x), y: mpR(g.y), vx: Math.round(g.vx), vy: Math.round(g.vy), tt: +g.t.toFixed(2), L: g.L });
+  else mpSend({ t: 'th', o: bot, k: g.kind, x: mpR(g.x), y: mpR(g.y), vx: Math.round(g.vx), vy: Math.round(g.vy), tt: +g.t.toFixed(2), L: g.L });
 }
 function mpOnThrow(m) {
+  const own = (m.o != null && m.f === 0) ? m.o | 0 : m.f;
   const L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
-  if (m.k === 'mine') { mines.push({ x: mpNum(m.x), y: mpNum(m.y), L, ang: mpNum(m.a), arm: 1.5, owner: m.f }); return; }
+  if (m.k === 'mine') { mines.push({ x: mpNum(m.x), y: mpNum(m.y), L, ang: mpNum(m.a), arm: 1.5, owner: own }); return; }
   if (!TMAP[m.k]) return;
-  grenades.push({ x: mpNum(m.x), y: mpNum(m.y), vx: clamp(mpNum(m.vx), -1200, 1200), vy: clamp(mpNum(m.vy), -1200, 1200), t: clamp(mpNum(m.tt, 2), .1, 6), kind: m.k, L, owner: m.f });
+  grenades.push({ x: mpNum(m.x), y: mpNum(m.y), vx: clamp(mpNum(m.vx), -1200, 1200), vy: clamp(mpNum(m.vy), -1200, 1200), t: clamp(mpNum(m.tt, 2), .1, 6), kind: m.k, L, owner: own });
   if (Math.hypot(mpNum(m.x) - player.x, mpNum(m.y) - player.y) < 900) sfx('throw');
 }
 // uma mina inimiga é detonada por quem passar perto dela (inclusive jogadores remotos)
@@ -345,7 +412,7 @@ function mpLocalDied() {
   G.lastHitBy = null; G.lastHitT = -99;
 }
 function mpOnDead(m, vic) {
-  if (!vic || m.v !== m.f) return;
+  if (!vic || (m.v !== m.f && !(m.f === 0 && vic.bot))) return;
   const killer = m.k != null ? MP.players.get(m.k | 0) : null;
   vic.deaths++;
   if (killer && killer !== vic && !(mpTdm() && killer.team === vic.team)) { killer.kills++; if (mpTdm()) MP.teamScore[killer.team & 1]++; if (killer.id === MP.myId) { G.kills++; sfx('kill'); banner('ABATEU ' + vic.name.toUpperCase()); } }
@@ -356,6 +423,7 @@ function mpOnDead(m, vic) {
   if (vic.id !== MP.myId) {
     const r = MP.remotes.get(vic.id);
     if (r) { r.dead = true; r.pr = false; }
+    if (vic.bot && MP.isHost) { mpCheckWin(); return; }
     const x = mpNum(m.x), y = mpNum(m.y), L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
     addDecal({ k: 'corpse', x, y, ang: mpNum(m.a), who: 'player', L });
     addDecal({ k: 'pool', x, y, r: 6, max: 20, a: .8, L });
@@ -363,7 +431,29 @@ function mpOnDead(m, vic) {
   }
   mpCheckWin();
 }
-function mpScore(p) { return p.kills; }
+// o anfitrião anuncia a morte de um bot e agenda o renascimento
+function mpBotDied(e) {
+  const vic = MP.players.get(e.mpId); if (!vic) return;
+  const k = e.lastBy;
+  const m = { t: 'dead', v: e.mpId, k: k == null ? null : k, w: e.lastW || null, x: mpR(e.x), y: mpR(e.y), a: 0, L: e.L };
+  mpSend(m); m.f = 0; mpOnDead(m, vic);
+  MP.botRespawns.push({ at: G.time + 5, id: e.mpId });
+}
+function mpSpawnBot(p, spot) {
+  const s = spot || mpFarSpot(mpHumans());
+  const e = makeEnemy(p.ty, s.x * T + T / 2, s.y * T + T / 2, -1);
+  e.mpId = p.id; e.team = p.team; e.name = p.name;
+  enemies.push(e);
+}
+function mpFarSpot(list) {
+  let best = SPOTS[0], bd = -1;
+  for (let i = 0; i < 50; i++) {
+    const s = SPOTS[(Math.random() * SPOTS.length) | 0], sx = s.x * T + T / 2, sy = s.y * T + T / 2;
+    let d = 1e9; for (const o of list) d = Math.min(d, Math.hypot(o.x - sx, o.y - sy));
+    if (d > bd) { bd = d; best = s; }
+  }
+  return best;
+}
 function mpCheckWin() {
   if (!MP.isHost || MP.ended) return;
   const kl = MP.cfg.kl;
@@ -409,7 +499,7 @@ function mpStartHost() {
 }
 function mpBegin(cfg, order) {
   if (!cfg || !Array.isArray(order) || !order.includes(MP.myId)) return;
-  MP.cfg = { gm: cfg.gm === 'tdm' ? 'tdm' : 'dm', kl: clamp(mpNum(cfg.kl, 15) | 0, 3, 100), tl: clamp(mpNum(cfg.tl, 8) | 0, 1, 60), night: !!cfg.night, seed: mpNum(cfg.seed) >>> 0 };
+  MP.cfg = { gm: cfg.gm === 'tdm' ? 'tdm' : 'dm', kl: clamp(mpNum(cfg.kl, 15) | 0, 3, 100), tl: clamp(mpNum(cfg.tl, 8) | 0, 1, 60), night: !!cfg.night, seed: mpNum(cfg.seed) >>> 0, bots: MP.cfg.bots | 0, bt: MP.cfg.bt };
   MP.order = order.map(n => n | 0);
   for (const p of MP.players.values()) { p.kills = 0; p.deaths = 0; }
   MP.teamScore = [0, 0]; MP.feed = []; MP.remotes.clear(); MP.respawns = []; MP.ended = false; MP.respawnT = 0; MP.sendT = 0; MP.hudT = 0;
@@ -422,6 +512,8 @@ function mpBegin(cfg, order) {
   const lay = mpSpawnLayout(MP.order.length), s = lay[Math.max(0, MP.order.indexOf(MP.myId))];
   mpPlace(s);
   G.protT = MP_PROT;
+  MP.botRespawns = []; MP.botN = [...MP.players.values()].filter(p => p.bot).length;
+  if (MP.isHost) MP.order.forEach((id, i) => { const p = MP.players.get(id); if (p && p.bot) mpSpawnBot(p, lay[i]); });
   mpBuildHud();
   mpRenderFeed();
   banner(mpTdm() ? 'EQUIPES — META ' + MP.cfg.kl + ' ABATES' : 'TODOS CONTRA TODOS — META ' + MP.cfg.kl + ' ABATES');
@@ -474,6 +566,7 @@ function mpUpdate(dt) {
       if (od < md && od > .01) moveEntity(player, ox / od * (md - od) * .5, oy / od * (md - od) * .5);
     }
   }
+  if (MP.isHost) for (let i = MP.botRespawns.length - 1; i >= 0; i--) if (G.time >= MP.botRespawns[i].at) { const p = MP.players.get(MP.botRespawns[i].id); MP.botRespawns.splice(i, 1); if (p) mpSpawnBot(p); }
   for (let i = MP.respawns.length - 1; i >= 0; i--) if (G.time >= MP.respawns[i].at) { pickups.push(MP.respawns[i].it); MP.respawns.splice(i, 1); }
   for (const f of MP.feed) f.t -= dt;
   if (MP.feed.length && MP.feed[0].t <= 0) { MP.feed.shift(); mpRenderFeed(); }
@@ -493,8 +586,8 @@ function mpDraw(c, p, pts) {
     r.vis = canView(p.L, r.L, r.x, r.y) && seesEnemy(p, r, d, pts);
     if (!r.vis) { r.seenT = Math.max(0, (r.seenT || 0) - G.dt); if (r.seenT > 0 && canView(p.L, r.L, r.x, r.y) && d < VIS) r.vis = true; } else r.seenT = .22;
     if (!r.vis) continue;
-    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), look = mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
-    drawSoldier(c, r.x, r.y, r.a, { ...look, skin: true, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
+    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = pl && pl.bot ? ETYPES[pl.ty] : null, look = bt ? { body: bt.color, vest: bt.vest, helmet: bt.helmet, stripe: mpTdm() ? MP_TEAMS[pl.team & 1].color : bt.stripe } : mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
+    drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
     if (r.pr) { c.strokeStyle = 'rgba(143,220,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(r.x, r.y, 17, 0, PI2); c.stroke(); c.setLineDash([]); }
     const friend = mpFriend(r.id);
     if (friend || r.hp < 100) {
@@ -556,12 +649,14 @@ function renderMp() {
   if (MP.state === 'lobby') {
     const url = location.origin && location.origin !== 'null' ? location.origin + location.pathname + '?sala=' + MP.code : '';
     h += `<div class="mpcode"><small>CÓDIGO DA SALA</small><b>${mpEsc(MP.code)}</b>${url ? `<button class="ghost sm" data-mp="copy" data-url="${mpEsc(url)}">copiar link</button>` : ''}</div>`;
-    h += `<div class="mplist">` + [...MP.players.values()].map(p => `<div class="mprow"><i style="background:${mpTdm() ? MP_TEAMS[p.team & 1].color : '#8fdcff'}"></i><span>${mpEsc(p.name)}${p.id === 0 ? ' <em>anfitrião</em>' : ''}${p.id === MP.myId ? ' <em>você</em>' : ''}</span>${mpTdm() ? `<small>${MP_TEAMS[p.team & 1].name}</small>` : ''}${MP.isHost && mpTdm() ? `<button class="ghost sm" data-mp="team" data-id="${p.id}">trocar equipe</button>` : ''}</div>`).join('') + `</div>`;
+    h += `<div class="mplist">` + [...MP.players.values()].map(p => `<div class="mprow"><i style="background:${mpTdm() ? MP_TEAMS[p.team & 1].color : '#8fdcff'}"></i><span>${mpEsc(p.name)}${p.id === 0 ? ' <em>anfitrião</em>' : ''}${p.id === MP.myId ? ' <em>você</em>' : ''}${p.bot ? ' <em>bot</em>' : ''}</span>${mpTdm() ? `<small>${MP_TEAMS[p.team & 1].name}</small>` : ''}${MP.isHost && mpTdm() ? `<button class="ghost sm" data-mp="team" data-id="${p.id}">trocar equipe</button>` : ''}</div>`).join('') + `</div>`;
     const dis = MP.isHost ? '' : ' disabled';
     h += `<div class="copts">
       <label>Modo<select id="mpGm"${dis}><option value="dm"${MP.cfg.gm === 'dm' ? ' selected' : ''}>☠ Todos contra todos</option><option value="tdm"${MP.cfg.gm === 'tdm' ? ' selected' : ''}>⚔ Equipes (Azul × Vermelho)</option></select></label>
       <label>Meta de abates<select id="mpKl"${dis}>${[5, 10, 15, 25, 40].map(v => `<option value="${v}"${MP.cfg.kl === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Duração<select id="mpTl"${dis}>${[3, 5, 8, 12, 20].map(v => `<option value="${v}"${MP.cfg.tl === v ? ' selected' : ''}>${v} min</option>`).join('')}</select></label>
+      <label>Bots (controlados pelo anfitrião)<select id="mpBots"${dis}>${[0, 1, 2, 3, 4, 5, 6, 7, 8].map(v => `<option value="${v}"${MP.cfg.bots === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Tipo de bots<select id="mpBt"${dis}>${Object.keys(MP_BOT_POOL).map(k => `<option value="${k}"${MP.cfg.bt === k ? ' selected' : ''}>${MP_BOT_LABEL[k]}</option>`).join('')}</select></label>
       <label>Horário<select id="mpNight"${dis}><option value="0"${!MP.cfg.night ? ' selected' : ''}>☀ Dia</option><option value="1"${MP.cfg.night ? ' selected' : ''}>🌙 Noite</option></select></label>
     </div>`;
     h += `<div class="asum">Equipamento: <b>${SAVE.custom.weapons.filter(Boolean).map(id => WMAP[id].name).join(' · ')}</b>. Você nasce com proteção por ${MP_PROT}s e renasce ${MP_RESPAWN}s depois de cair. ${MP.isHost ? 'Quando todos entrarem, inicie a partida.' : 'Aguardando o anfitrião iniciar…'}</div>`;
@@ -583,6 +678,8 @@ function renderMp() {
 }
 function mpCfgChanged() {
   MP.cfg.gm = $('mpGm').value === 'tdm' ? 'tdm' : 'dm'; MP.cfg.kl = +$('mpKl').value; MP.cfg.tl = +$('mpTl').value; MP.cfg.night = $('mpNight').value === '1';
+  MP.cfg.bots = +$('mpBots').value; MP.cfg.bt = $('mpBt').value;
+  mpSyncBots();
   mpBroadcastLobby();
 }
 (function wireMp() {
@@ -591,7 +688,7 @@ function mpCfgChanged() {
     if (e.target.id === 'mpName') { MP.name = mpSanName(e.target.value); try { SAVE.settings.name = MP.name; writeSave(); } catch (_) { /* ignora */ } }
     else if (e.target.id === 'mpCode') MP.joinCode = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
-  root.addEventListener('change', e => { if (MP.isHost && /^mp(Gm|Kl|Tl|Night)$/.test(e.target.id)) mpCfgChanged(); });
+  root.addEventListener('change', e => { if (MP.isHost && /^mp(Gm|Kl|Tl|Night|Bots|Bt)$/.test(e.target.id)) mpCfgChanged(); });
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-mp]'); if (!b) return;
     initAudio();
