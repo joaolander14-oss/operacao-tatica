@@ -7,6 +7,8 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
+const MP_VER = 18;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [
   { name: 'AZUL', color: '#5aa9ff', look: { body: '#3f6f98', vest: '#26425a', helmet: '#2d4e6e', stripe: '#8fdcff' } },
@@ -113,11 +115,12 @@ function mpHostRecv(conn, m) {
   if (!m || typeof m !== 'object') return;
   if (m.t === 'hello') {
     if (conn._pid != null) return;
+    if (m.ver !== MP_VER) { conn.send({ t: 'full', why: MP_VER_MSG }); setTimeout(() => { try { conn.close(); } catch (_) { /* ignora */ } }, 400); return; }
     if (MP.on || MP.players.size >= MP_MAX) { conn.send({ t: 'full', why: MP.on ? 'A partida já começou.' : 'Sala cheia.' }); setTimeout(() => { try { conn.close(); } catch (_) { /* ignora */ } }, 400); return; }
     const id = MP.nextId++, t0 = [...MP.players.values()].filter(p => p.team === 0).length, t1 = MP.players.size - t0;
     conn._pid = id; MP.conns.set(id, conn);
     MP.players.set(id, { id, name: mpSanName(m.name), team: t0 <= t1 ? 0 : 1, kills: 0, deaths: 0, load: mpCleanLoad(m.load) });
-    conn.send({ t: 'welcome', id });
+    conn.send({ t: 'welcome', id, ver: MP_VER });
     mpTrimBots();
     mpBroadcastLobby();
     return;
@@ -171,7 +174,7 @@ function mpJoin(code) {
   peer.on('open', () => {
     const conn = peer.connect('optac-' + code, { reliable: true, serialization: 'json' });
     MP.hostConn = conn;
-    conn.on('open', () => conn.send({ t: 'hello', name: MP.name, load: mpLoad() }));
+    conn.on('open', () => conn.send({ t: 'hello', name: MP.name, load: mpLoad(), ver: MP_VER }));
     conn.on('data', m => mpGuestRecv(m));
     conn.on('close', () => { clearTimeout(timer); mpHostLost(); });
     conn.on('error', () => { /* o fechamento trata */ });
@@ -184,7 +187,7 @@ function mpJoin(code) {
 function mpGuestRecv(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
-    case 'welcome': MP.myId = m.id | 0; MP.state = 'lobby'; MP.status = ''; renderMp(); break;
+    case 'welcome': if (m.ver !== MP_VER) { mpClose(); mpSetStatus(MP_VER_MSG); break; } MP.myId = m.id | 0; MP.state = 'lobby'; MP.status = ''; renderMp(); break;
     case 'full': mpClose(); mpSetStatus(String(m.why || 'Sala indisponível.')); break;
     case 'lobby': mpApplyLobby(m); break;
     case 'start': if (m.f === 0 || m.f == null) mpBegin(m.cfg, m.order); break;
