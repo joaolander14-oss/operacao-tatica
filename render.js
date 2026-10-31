@@ -360,6 +360,7 @@ function render() {
 
   // zona de extração
   if (MP.on && MP.sites.length) mpDrawSites(c2);
+  drawPings(c2);
   if (G.mode !== 'survival' && G.mode !== 'mp') {
     const ex = extT.x * T + T / 2, ey = extT.y * T + T / 2, open = G.extractOpen;
     c2.save(); c2.translate(ex, ey);
@@ -984,12 +985,14 @@ window.addEventListener('keydown', e => {
   if (G.state !== 'play') return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (!e.repeat) {
-    if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1 && n <= 3) selectWeapon(n - 1); }
+    if (CMD.open && e.code.startsWith('Digit')) { cmdPick(+e.code.slice(5) - 1); e.preventDefault(); }
+    else if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1 && n <= 3) selectWeapon(n - 1); }
     else if (e.code === 'KeyR') startReload();
     else if (e.code === 'KeyQ') selectWeapon(player.wi === 0 ? 1 : 0);
     else if (e.code === 'KeyF') quickMelee();
     else if (e.code === 'KeyN') toggleVision();
     else if (e.code === 'KeyK') toggleMed();
+    else if (e.code === 'KeyZ') toggleCmd();
     else if (e.code === 'KeyY') radioPtt(true);
     else if (e.code === 'KeyU') toggleRadioPanel();
     else if (e.code === 'BracketLeft') radioStep(-1);

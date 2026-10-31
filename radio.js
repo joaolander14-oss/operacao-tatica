@@ -57,7 +57,14 @@ function radioSwap(call) {
 }
 function radioTxOn() { return !!(RADIO.ptt && RADIO.track && radioGear() && player && !player.dead && MP.on); }
 function radioPtt(on) {
-  if (!MP.on) { if (on && G.state === 'play') banner('O RÁDIO FUNCIONA NO MULTIPLAYER ONLINE'); return; }
+  if (typeof cmdListen === 'function') { if (on) { if (G.state === 'play' && radioGear() && player && !player.dead) cmdListen(true); } else cmdListen(false); }
+  if (!MP.on) {
+    if (on && G.state === 'play') {
+      if (!radioGear()) banner('SEM RÁDIO — EQUIPE UM NO ARSENAL');
+      else { radioAC(); radioClick(true); if (!cmdAlliesExist()) banner('SEM PARCEIROS PARA OUVIR — A VOZ ENTRE JOGADORES É NO MULTIPLAYER'); }
+    }
+    return;
+  }
   if (on) {
     if (!radioGear()) { banner('SEM RÁDIO — EQUIPE UM NO ARSENAL'); return; }
     if (player.dead) return;

@@ -21,5 +21,7 @@ Jogo de operações de soldados em 2D (visão de cima), feito só com HTML, CSS 
 
 - **Rádio por voz** (multiplayer online): equipe um rádio na aba Proteção → Rádio (Pulso, Walkie-Talkie, Tático, VHF, Satelital: cada um com alcance e número de canais diferentes). Segure **Y** para falar no microfone (o navegador pede permissão na primeira vez); quem estiver no mesmo canal e dentro do alcance (vale o menor entre os dois rádios) escuta, com chiado quanto mais longe. **[** e **]** trocam o canal; **U** (ou clicar no texto do canal) abre o painel.
 
+- **Ordens por rádio aos bots aliados** (parceiros da campanha e bots do seu time no online): com rádio equipado, aperte **Z** e escolha a ordem (ou segure **Y** e fale: "seguir", "ficar", "ir até lá", "defender", "atacar", "recuar", "reportar"). "Ir até lá" e "defender" usam o ponto marcado pelo cursor. Só obedece quem estiver dentro do alcance do rádio, e eles respondem por texto e voz sintetizada, além de avisar quando veem inimigos. O reconhecimento de voz é o do navegador (Chrome/Edge) e pode enviar o áudio ao serviço dele; o menu funciona sem isso.
+
 ## Controles
 WASD mover · mouse mira/atira · 1-3 armas · R recarrega · F golpe · G arremessar · T trocar item · B tipo de cartucho · H kit médico · V reparar colete · N visão · E interagir · I inventário · Esc pausa. No celular: analógicos na tela.

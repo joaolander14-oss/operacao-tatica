@@ -7,7 +7,7 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
-const MP_VER = 21;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER = 22;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
 const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [
@@ -245,6 +245,8 @@ function mpHandle(m) {
     case 'end': if (m.f === 0) mpFinish(m.r); break;
     case 'rnd': if (m.f === 0) mpOnRound(m); break;
     case 'pts': if (MP.on && m.f === 0) mpOnPts(m); break;
+    case 'cmd': if (MP.on && MP.isHost) mpOnCmd(m, pl); break;
+    case 'cr': if (MP.on && m.f === 0) cmdOnReply(m); break;
     case 'bl': if (MP.on && m.f === 0) mpOnBotList(m); break;
     case 'wave': if (MP.on && m.f === 0 && (m.st === 'live' || m.st === 'between')) coopOnWave(m.n | 0, m.st); break;
     case 'sb': if (MP.on && m.f === 0 && Array.isArray(m.l)) for (const it of m.l.slice(0, 16)) mpOnState(Object.assign({ f: 0 }, it)); break;

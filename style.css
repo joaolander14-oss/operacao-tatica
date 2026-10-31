@@ -404,3 +404,19 @@ body.touch #cons button{width:40px;height:40px}
 #radioBody .rrow{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:12px}
 #radioBody .ok{color:#8be36a}#radioBody .bad{color:#ff8a70}
 #radioBody h4{margin:8px 0 2px;font-size:11px;letter-spacing:.1em;color:#9fb0b8}
+
+/* ===== V30: ordens por rádio ===== */
+#radioFeed{position:fixed;left:12px;top:40%;z-index:25;max-width:300px;pointer-events:none;display:flex;flex-direction:column;gap:3px}
+#radioFeed div{background:rgba(8,12,14,.78);border-left:3px solid #7dff9a;border-radius:4px;padding:3px 8px;font-size:12px;color:#e8f0f2;animation:fadein .2s}
+#radioFeed div.me{border-left-color:#ffd24a}
+#radioFeed b{color:#9fe8b0;margin-right:2px}
+#radioFeed .me b{color:#ffd24a}
+@keyframes fadein{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+#cmdPanel{position:fixed;left:50%;bottom:130px;transform:translateX(-50%);z-index:30;background:rgba(10,14,16,.94);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:min(360px,94vw);pointer-events:auto;color:#dfe6ea;display:flex;flex-direction:column;gap:4px}
+#cmdPanel.hidden{display:none}
+#cmdPanel .medHead{display:flex;justify-content:space-between;align-items:center;font-size:13px;letter-spacing:.08em;margin-bottom:4px}
+#cmdPanel button{background:#1e272c;color:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;text-align:left;font-size:13px}
+#cmdPanel button.cmd span{display:inline-block;width:24px}
+#cmdPanel button.cmd b{color:#ffd24a;margin-right:6px}
+#cmdPanel button:hover{background:#2a363c}
+#cmdPanel .cmdHint{font-size:11px;color:#9fb0b8;line-height:1.45;margin-top:4px}

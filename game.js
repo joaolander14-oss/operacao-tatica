@@ -1298,9 +1298,12 @@ function updateAlly(a, dt) {
       const d = Math.hypot(e.x - a.x, e.y - a.y);
       if (d < rng && d < bd && hasLOS(a.x, a.y, e.x, e.y, a.L)) { best = e; bd = d; }
     }
+    if (best && !a.target && typeof CMD !== 'undefined' && G.time - CMD.lastCall > 8 && radioGear() && dpl < radioRange()) { CMD.lastCall = G.time; radioSay(a.name, cmdRnd(['Contato!', 'Inimigo à vista!', 'Hostil na área!'])); }
     a.target = best;
   }
-  const tg = a.target && !a.target.dead ? a.target : null;
+  const od = a.order;
+  if (od && od.until && G.time > od.until) a.order = null;
+  const tg = od && od.k === 'retreat' && a.order ? null : (a.target && !a.target.dead ? a.target : null);
 
   if (a.def.heal) {
     a.healT -= dt;
@@ -1312,11 +1315,17 @@ function updateAlly(a, dt) {
     }
   }
 
-  const holdPos = G.hold && a.hold ? a.hold : null;
-  const goal = holdPos || { x: gx, y: gy };
-  const goalL = holdPos ? a.L : p.L;
+  let holdPos = G.hold && a.hold ? a.hold : null, tgtGoal = null, ordL = null;
+  const ord = a.order;
+  if (ord) {
+    if (ord.k === 'hold' || ord.k === 'defend') { holdPos = ord; ordL = ord.L; }
+    else if (ord.k === 'goto') { holdPos = ord; ordL = ord.L; if (a.L === ord.L && Math.hypot(ord.x - a.x, ord.y - a.y) < 40) a.order = { k: 'hold', x: ord.x, y: ord.y, L: ord.L }; }
+    else if (ord.k === 'attack') { tgtGoal = cmdNearestFoe(a); if (!tgtGoal) a.order = null; }
+  }
+  const goal = holdPos || tgtGoal || { x: gx, y: gy };
+  const goalL = holdPos ? (ordL != null ? ordL : a.L) : tgtGoal ? tgtGoal.L : p.L;
   const gd = a.L === goalL ? Math.hypot(goal.x - a.x, goal.y - a.y) : 999;
-  const leash = holdPos ? 70 : 300;
+  const leash = ord && ord.k === 'goto' ? 40 : holdPos ? (ord && ord.k === 'defend' ? 130 : 70) : tgtGoal ? 240 : 300;
 
   if (tg) {
     const dist = Math.hypot(tg.x - a.x, tg.y - a.y), toT = Math.atan2(tg.y - a.y, tg.x - a.x);
@@ -1401,6 +1410,7 @@ function makeNoise(x, y, radius) {
   }
 }
 function patrolTo(e) {
+  if (e.mpId != null && e.order && botOrderMove(e)) return;
   if (e.mpId != null && mpBotPatrol(e)) return;
   if (e.mpId != null && Math.random() < .65) { const hs = mpHumans().filter(h => !(mpTdm() && mpTargetTeam(h) === e.team)); if (hs.length) { const h = hs[(Math.random() * hs.length) | 0]; e.home = { x: h.x + rand(-140, 140), y: h.y + rand(-140, 140) }; } }
   const fl = floorOfL(e.L);
@@ -1464,7 +1474,7 @@ function updateEnemy(e, dt) {
   const spd = ty.speed * spdMul * PACE.enemy;
 
   if (e.state === 'patrol') {
-    if (e.path && e.pi < e.path.length) { followPath(e, spd * (e.mpId != null && MP.cfg.gm === 'koth' ? .9 : .5), dt); e.ang = turnToward(e.ang, e.moveAng, dt * 4); }
+    if (e.path && e.pi < e.path.length) { followPath(e, spd * (e.mpId != null && (MP.cfg.gm === 'koth' || (e.order && e.order.k !== 'hold')) ? .9 : .5), dt); e.ang = turnToward(e.ang, e.moveAng, dt * 4); }
     else {
       e.idle -= dt * (e.mpId != null && MP.cfg.gm === 'koth' ? 3 : 1); e.ang += Math.sin(G.time * .8 + e.walk) * dt * .6;
       if (e.idle <= 0) { e.idle = rand(1.5, 4); patrolTo(e); }
