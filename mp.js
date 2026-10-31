@@ -452,14 +452,18 @@ function mpBotDied(e) {
 function mpSpawnBot(p, spot) {
   const pool = mpRounds() ? MP.pools[mpSide(p.id)] : null;
   const s = spot || (pool && pool.length ? pool[(Math.random() * pool.length) | 0] : mpFarSpot(mpHumans()));
-  const e = makeEnemy(p.ty, s.x * T + T / 2, s.y * T + T / 2, -1);
+  const e = makeEnemy(p.ty, s.x * T + T / 2, s.y * T + T / 2, s.L != null ? s.L : -1);
   e.mpId = p.id; e.team = p.team; e.name = p.name; e.site = (Math.random() * 2) | 0;
   enemies.push(e);
+}
+function mpAnySpot() {
+  if (BSPOTS.length && Math.random() < .3) { const bsp = BSPOTS[(Math.random() * BSPOTS.length) | 0]; if (bsp.u.length) return bsp.u[(Math.random() * bsp.u.length) | 0]; }
+  return SPOTS[(Math.random() * SPOTS.length) | 0];
 }
 function mpFarSpot(list) {
   let best = SPOTS[0], bd = -1;
   for (let i = 0; i < 50; i++) {
-    const s = SPOTS[(Math.random() * SPOTS.length) | 0], sx = s.x * T + T / 2, sy = s.y * T + T / 2;
+    const s = mpAnySpot(), sx = s.x * T + T / 2, sy = s.y * T + T / 2;
     let d = 1e9; for (const o of list) d = Math.min(d, Math.hypot(o.x - sx, o.y - sy));
     if (d > bd) { bd = d; best = s; }
   }
@@ -548,7 +552,7 @@ function mpSpawnLayout(n) {
   return out;
 }
 function mpPlace(s) {
-  player.x = s.x * T + T / 2; player.y = s.y * T + T / 2; player.L = -1; player.ang = rand(0, PI2);
+  player.x = s.x * T + T / 2; player.y = s.y * T + T / 2; player.L = s.L != null ? s.L : -1; player.ang = rand(0, PI2);
   cam.x = player.x - vw / S / 2; cam.y = player.y - vh / S / 2; clampCam();
 }
 // renascimento: longe dos jogadores vivos
@@ -557,7 +561,7 @@ function mpRespawn() {
   let best = SPOTS[0], bd = -1;
   const pl = mpRounds() ? MP.pools[mpSide(MP.myId)] : null;
   for (let i = 0; i < 50; i++) {
-    const s = pl && pl.length ? pl[(Math.random() * pl.length) | 0] : SPOTS[(Math.random() * SPOTS.length) | 0], sx = s.x * T + T / 2, sy = s.y * T + T / 2;
+    const s = pl && pl.length ? pl[(Math.random() * pl.length) | 0] : mpAnySpot(), sx = s.x * T + T / 2, sy = s.y * T + T / 2;
     let d = 1e9; for (const r of MP.remotes.values()) if (!r.dead) d = Math.min(d, Math.hypot(r.x - sx, r.y - sy));
     if (pl || d > bd) { bd = d; best = s; if (pl) break; }
   }

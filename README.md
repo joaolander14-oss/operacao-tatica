@@ -7,6 +7,7 @@ Jogo de operações de soldados em 2D (visão de cima), feito só com HTML, CSS 
 ## O que tem
 - Campanha com 6 modos (Eliminação, Documentos, Resgate, Sabotagem, Alvo VIP, Sobrevivência) e **Partida personalizada** com tudo liberado.
 - ~167 armas (pistolas, SMGs, fuzis de assalto e de batalha, DMRs, metralhadoras, 18 escopetas, snipers, antimaterial, lançadores, corpo a corpo), 56 calibres com dano/penetração próprios, acessórios e skins.
+- Inimigos, reféns, objetivos e itens aparecem em todos os andares. Carregadores e cápsulas que caem seguem o estilo da arma (pente reto de pistola, STANAG, banana de AK, tambor, caixa de fita, pente de escopeta…); a munição e cada granada no chão têm o seu desenho.
 - Paredes de madeira, tijolo (casas) e concreto (prédios): cada calibre atravessa até certo material e todo obstáculo atravessado reduz o dano.
 - 7 modelos de construção (casa, cabana de madeira, bangalô, sobrado de 2 andares, galpão, garagem, prédio de escritórios) e 10 tipos de inimigos (sniper, escopeteiro, granadeiro, médico, antitanque, comando…), cada um com arma e saque próprios.
 - Prédios e sobrados com até 4 andares (duas escadas alternadas), janelas grandes de 2 ou 3 blocos que quebram inteiras, telhados que somem quando você entra, portas, janelas, penetração de materiais, visão noturna e térmica.

@@ -437,6 +437,21 @@ function startReload() {
   sfx(w.reloadType === 'shell' ? 'shell' : 'reload');
 }
 // estilo CS2: o carregador sai junto com as balas que sobraram nele
+// estilo do carregador de cada arma
+function magStyle(w) {
+  const o = typeof w.shape === 'object' ? w.shape : {};
+  if (w.shape === 'pistol') return w.grp === 'Pistolas automáticas' ? 'pistolx' : 'pistol';
+  if (w.grp === 'Escopetas') return 'shotmag';
+  if (w.shape === 'minigun') return 'drum';
+  if (w.grp === 'Metralhadoras') return w.mag >= 70 ? (w.id === 'rpd' ? 'drum' : 'belt') : 'box';
+  if (w.id === 'bizon') return 'helical';
+  if (o.mag && w.mag >= 45) return 'drum';
+  if (w.grp === 'Submetralhadoras') return 'smg';
+  if (['7.62x39', '5.45', '7.92k', '5.8'].includes(w.cal) || o.wood) return 'ak';
+  if (w.grp === 'Fuzis de batalha' || w.grp === 'Atiradores designados' || w.grp === 'Snipers') return 'box';
+  return 'stanag';
+}
+const MAG_LEN = { pistol: 7, pistolx: 10, smg: 14, stanag: 14, ak: 15, box: 17, drum: 13, belt: 14, helical: 17, shotmag: 13 };
 function dropMagazine() {
   const p = player, sl = curSlot(), w = sl.w;
   const lost = sl.mag;
@@ -445,11 +460,11 @@ function dropMagazine() {
   if (w.shape === 'revolver' || w.shape === 'dupla') {
     for (let i = 0; i < w.mag; i++) {
       const a = p.ang + Math.PI / 2 + rand(-1.2, 1.2);
-      spawnPart({ x: p.x, y: p.y, vx: Math.cos(a) * rand(50, 150), vy: Math.sin(a) * rand(50, 150), life: 40, size: 2, color: col, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-14, 14), layer: 0, L: p.L });
+      spawnPart({ x: p.x, y: p.y, vx: Math.cos(a) * rand(50, 150), vy: Math.sin(a) * rand(50, 150), life: 40, size: 2, color: col, cal: w.cal, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-14, 14), layer: 0, L: p.L });
     }
   } else if (!w.flame) {
     const a = p.ang + Math.PI / 2 * (Math.random() < .5 ? 1 : -1) + rand(-.4, .4);
-    spawnPart({ x: p.x, y: p.y, vx: Math.cos(a) * rand(70, 120), vy: Math.sin(a) * rand(70, 120), life: 40, size: w.mag > 40 ? 11 : w.mag > 14 ? 8 : 6, color: col, drag: 5, kind: 'mag', rot: p.ang, vr: rand(-9, 9), layer: 0, L: p.L });
+    spawnPart({ x: p.x, y: p.y, vx: Math.cos(a) * rand(70, 120), vy: Math.sin(a) * rand(70, 120), life: 40, size: MAG_LEN[magStyle(w)] || 10, color: col, ms: magStyle(w), mcol: typeof w.shape === 'object' ? w.shape.bc : '#2a2d31', wood: typeof w.shape === 'object' && !!w.shape.wood, drag: 5, kind: 'mag', rot: p.ang, vr: rand(-9, 9), layer: 0, L: p.L });
   }
   if (lost > 0) addText(p.x, p.y - 30, '-' + lost + ' balas', '#ff8a70', 12);
   sfx('magdrop');
@@ -516,7 +531,7 @@ function fireShot(w, sl) {
   else sfx(w.snd, w.sup ? .25 : 1);
   if (!w.rocket && !w.flame && w.shape !== 'revolver' && w.shape !== 'dupla') {
     const a = p.ang + Math.PI / 2 + rand(-.4, .4);
-    spawnPart({ x: p.x + Math.cos(p.ang) * 8, y: p.y + Math.sin(p.ang) * 8, vx: Math.cos(a) * rand(60, 130), vy: Math.sin(a) * rand(60, 130), life: 1.4, size: 2, color: w.pellets > 1 ? '#d95a5a' : cal.color, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-12, 12), layer: 0, L: p.L });
+    spawnPart({ x: p.x + Math.cos(p.ang) * 8, y: p.y + Math.sin(p.ang) * 8, vx: Math.cos(a) * rand(60, 130), vy: Math.sin(a) * rand(60, 130), life: 1.4, size: 2, color: w.pellets > 1 ? '#d95a5a' : cal.color, cal: w.cal, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-12, 12), layer: 0, L: p.L });
   } else if (w.rocket) {
     for (let i = 0; i < 8; i++) { const a = p.ang + Math.PI + rand(-.6, .6); spawnPart({ x: p.x, y: p.y, vx: Math.cos(a) * rand(60, 200), vy: Math.sin(a) * rand(60, 200), life: rand(.3, .6), size: rand(5, 9), grow: 8, color: 'rgba(150,150,150,1)', drag: 3, kind: 'smoke' }); }
   }
@@ -908,6 +923,7 @@ function randomGear(boost) {
   for (let i = 0; i < all.length; i++) { r -= weights[i]; if (r <= 0) return all[i].id; }
   return all[0].id;
 }
+const rndThr = () => ['frag', 'frag', 'flash', 'smoke', 'molotov', 'flare', 'mine'][(Math.random() * 7) | 0];
 function dropPickup(x, y, forced, boost, L = -1) {
   if (!forced && Math.random() > (boost ? 1 : .32)) return;
   const r = Math.random();
@@ -915,7 +931,7 @@ function dropPickup(x, y, forced, boost, L = -1) {
   if (boost) it = { type: 'gear', item: randomGear(true) };
   else if (r < .45) it = { type: 'ammo', items: ammoItems() };
   else if (r < .68) it = Math.random() < .4 ? { type: 'med' } : { type: 'heal', kind: ['bandage', 'bandage', 'painkiller', 'adrenaline', 'splint', 'surgery'][(Math.random() * 6) | 0] };
-  else if (r < .82) it = { type: 'grenade' };
+  else if (r < .82) it = { type: 'grenade', kind: rndThr() };
   else if (r < .92) it = { type: 'repair' };
   else it = { type: 'gear', item: randomGear(false) };
   it.x = x; it.y = y; it.t = Math.random() * 6; it.L = L;
@@ -1325,7 +1341,7 @@ function dropLoot(e) {
   if (k && Math.random() < .75) {
     if (k === 'sniper') put({ type: 'ammo', items: [{ cal: '.308', n: 14 }, { cal: Math.random() < .5 ? '.338' : '6.5', n: 6 }] });
     else if (k === 'shell') { const c = ['12ga-slug', '12ga-flech', '12ga-dragon', '12ga-rubber', '12ga'][(Math.random() * 5) | 0]; put({ type: 'ammo', items: [{ cal: c, n: CALIBERS[c].pack + 4 }] }); }
-    else if (k === 'grenade') put({ type: 'grenade' });
+    else if (k === 'grenade') put({ type: 'grenade', kind: rndThr() });
     else if (k === 'med') put({ type: 'med' });
     else if (k === 'rocket') put({ type: 'ammo', items: [{ cal: 'rocket', n: 2 }, { cal: '40mm', n: 4 }] });
     else if (k === 'elite') { if (Math.random() < .5) put({ type: 'gear', item: randomGear(true) }); else put({ type: 'repair' }); }
@@ -1529,15 +1545,16 @@ function startWave() {
   const n = G.mode === 'sandbox' && G.custom ? G.custom.enemies : Math.min(30, 4 + 2 * G.wave + G.level - 1);
   const hv = Math.min(.35, .03 * G.wave), sc = .22, ru = Math.min(.2, .03 * G.wave);
   for (let i = 0; i < n; i++) {
-    let s = null;
-    for (let k = 0; k < 40; k++) {
+    let s = null, sL = -1;
+    if (BSPOTS.length && Math.random() < .3) { const bsp = BSPOTS[(Math.random() * BSPOTS.length) | 0]; if (bsp.u.length) { s = bsp.u[(Math.random() * bsp.u.length) | 0]; sL = s.L; } }
+    if (!s) for (let k = 0; k < 40; k++) {
       const c = SPOTS[(Math.random() * SPOTS.length) | 0];
       const px = c.x * T + T / 2, py = c.y * T + T / 2;
       if (Math.hypot(px - player.x, py - player.y) > 520 && (player.L >= 0 || !hasLOS(px, py, player.x, player.y, -1))) { s = c; break; }
     }
     if (!s) s = SPOTS[(Math.random() * SPOTS.length) | 0];
     const r = Math.random(), key = Math.random() < Math.min(.4, .04 * G.wave + .05) ? allowType(EXTRA_TYPES[(Math.random() * EXTRA_TYPES.length) | 0]) : allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier');
-    const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, -1);
+    const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, sL);
     enemies.push(e);
     goSearch(e, { x: player.x + rand(-80, 80), y: player.y + rand(-80, 80) }, player.L);
   }
@@ -1547,7 +1564,7 @@ function supplyDrop() {
   const c = { x: player.x, y: player.y }, L = player.L;
   const put = o => { const s = L >= 0 ? { x: c.x + rand(-60, 60), y: c.y + rand(-60, 60) } : nearFree(c.x, c.y, 160); pickups.push(Object.assign({ x: s.x, y: s.y, t: 0, L }, o)); };
   put({ type: 'ammo', items: ammoItems() }); put({ type: 'ammo', items: ammoItems() });
-  put({ type: 'med' }); put({ type: Math.random() < .5 ? 'grenade' : 'repair' });
+  put({ type: 'med' }); put(Math.random() < .5 ? { type: 'grenade', kind: rndThr() } : { type: 'repair' });
   if (G.wave % 3 === 0) put({ type: 'gear', item: randomGear(G.wave >= 6) });
 }
 
@@ -1650,9 +1667,9 @@ function startMission(mode, level, custom) {
   const placed = [];
   const addRandom = count => {
     for (let i = 0; i < count; i++) {
-      const inside = BSPOTS.length && Math.random() < .6;
+      const inside = BSPOTS.length && Math.random() < .65;
       if (inside) {
-        const bsp = rnd(BSPOTS), up = bsp.u.length >= 4 && Math.random() < .4;
+        const wantUp = Math.random() < .6, pl = wantUp ? BSPOTS.filter(b => b.u.length >= 4) : BSPOTS, bsp = rnd(pl.length ? pl : BSPOTS), up = wantUp && bsp.u.length >= 4;
         const s = rnd(up ? bsp.u : bsp.g); placed.push(s); addE(rollKey(), s, up ? s.L : -1);
       } else { const s = pickSpot(SPOTS, 15, placed); placed.push(s); addE(rollKey(), s, -1); }
     }
@@ -1660,7 +1677,8 @@ function startMission(mode, level, custom) {
   // pontos de interesse dentro de prédios (preferindo andares diferentes)
   const poi = (i, wantUp) => {
     if (!BSPOTS.length) return { s: pickSpot(SPOTS, 14, []), L: -1 };
-    const bsp = BSPOTS[i % BSPOTS.length], up = wantUp && bsp.u.length >= 4;
+    const pool = wantUp ? BSPOTS.filter(b => b.u.length >= 4) : BSPOTS;
+    const bsp = (pool.length ? pool : BSPOTS)[i % (pool.length || BSPOTS.length)], up = wantUp && bsp.u.length >= 4;
     const s = rnd(up ? bsp.u : bsp.g);
     return { s, L: up ? s.L : -1 };
   };
@@ -1673,7 +1691,7 @@ function startMission(mode, level, custom) {
       addRandom(cnt(Math.min(26, 8 + 2 * (level - 1))));
       G.objTotal = 3;
       for (let i = 0; i < 3; i++) {
-        const q = poi(i, i === 1);
+        const q = poi(i, Math.random() < .55);
         pickups.push({ x: q.s.x * T + T / 2, y: q.s.y * T + T / 2, type: 'intel', t: Math.random() * 6, L: q.L });
         addE(rollKey(), nearL(q.s, 3, q.L), q.L);
       }
@@ -1683,7 +1701,7 @@ function startMission(mode, level, custom) {
       addRandom(cnt(Math.min(20, 6 + 2 * (level - 1))));
       G.objTotal = 3; G.rescueNeed = 2;
       for (let i = 0; i < 3; i++) {
-        const q = poi(i, i === 0), h = makeHostage(q.s.x * T + T / 2, q.s.y * T + T / 2, i + 1, q.L);
+        const q = poi(i, Math.random() < .55), h = makeHostage(q.s.x * T + T / 2, q.s.y * T + T / 2, i + 1, q.L);
         allies.push(h);
         interacts.push({ x: h.x, y: h.y, L: q.L, type: 'hostage', need: 2, prog: 0, done: false, ref: h });
         addE('soldier', nearL(q.s, 3, q.L), q.L); addE(rollKey(), nearL(q.s, 3, q.L), q.L);
@@ -1697,9 +1715,12 @@ function startMission(mode, level, custom) {
       for (let i = 0; i < 3; i++) {
         let s = null;
         for (let k = 0; k < 60; k++) { const c = rnd(SPOTS); if (far(c, 16) && Math.hypot(c.x - extT.x, c.y - extT.y) > 8 && used.every(u => Math.hypot(u.x - c.x, u.y - c.y) > 10)) { s = c; break; } }
-        s = s || rnd(SPOTS); used.push(s);
-        interacts.push({ x: s.x * T + T / 2, y: s.y * T + T / 2, L: -1, type: 'charge', need: 3, prog: 0, done: false });
-        addE('soldier', nearL(s, 3, -1), -1); addE(rollKey(), nearL(s, 3, -1), -1);
+        s = s || rnd(SPOTS);
+        let sL = -1;
+        if (BSPOTS.length && Math.random() < .5) { const q = poi(i * 3 + 1, true); if (q.L >= 0) { s = q.s; sL = q.L; } }
+        used.push(s);
+        interacts.push({ x: s.x * T + T / 2, y: s.y * T + T / 2, L: sL, type: 'charge', need: 3, prog: 0, done: false });
+        addE('soldier', nearL(s, 3, sL), sL); addE(rollKey(), nearL(s, 3, sL), sL);
       }
       break;
     }
@@ -1714,10 +1735,16 @@ function startMission(mode, level, custom) {
   }
   const put = (o, s, L = -1) => pickups.push(Object.assign({ x: s.x * T + T / 2, y: s.y * T + T / 2, t: Math.random() * 6, L }, o));
   const mpm = mode === 'mp';
-  for (let i = 0; i < (mpm ? 14 : 6); i++) put({ type: 'ammo', items: ammoItems() }, pickSpot(SPOTS, 8, []));
-  for (let i = 0; i < (mpm ? 6 : 2); i++) put({ type: 'med' }, pickSpot(SPOTS, 10, []));
-  for (let i = 0; i < (mpm ? 8 : 3); i++) put({ type: 'heal', kind: ['bandage', 'bandage', 'painkiller', 'adrenaline', 'splint', 'surgery'][(Math.random() * 6) | 0] }, pickSpot(SPOTS, 10, []));
-  for (let i = 0; i < (mpm ? 4 : 1); i++) put({ type: 'grenade' }, pickSpot(SPOTS, 10, []));
+  // itens espalhados também pelos andares de cima
+  const anySpot = (d, avoid) => {
+    if (BSPOTS.length && Math.random() < .6) { const wantUp = Math.random() < .7, pl = wantUp ? BSPOTS.filter(b => b.u.length >= 4) : BSPOTS, bsp = rnd(pl.length ? pl : BSPOTS), up = wantUp && bsp.u.length >= 4, s = rnd(up ? bsp.u : bsp.g); return { s, L: up ? s.L : -1 }; }
+    return { s: pickSpot(SPOTS, d, avoid), L: -1 };
+  };
+  const putAny = (o, d) => { const q = anySpot(d, []); put(o, q.s, q.L); };
+  for (let i = 0; i < (mpm ? 14 : 8); i++) putAny({ type: 'ammo', items: ammoItems() }, 8);
+  for (let i = 0; i < (mpm ? 6 : 3); i++) putAny({ type: 'med' }, 10);
+  for (let i = 0; i < (mpm ? 8 : 4); i++) putAny({ type: 'heal', kind: ['bandage', 'bandage', 'painkiller', 'adrenaline', 'splint', 'surgery'][(Math.random() * 6) | 0] }, 10);
+  for (let i = 0; i < (mpm ? 4 : 3); i++) putAny({ type: 'grenade', kind: rndThr() }, 10);
   for (let i = 0; i < (mpm ? 4 : 1); i++) { const q = poi(3 + i, true); put({ type: 'gear', item: randomGear(false) }, q.s, q.L); }
   for (let i = 0; i < (mpm ? 3 : 1); i++) { const q = poi(4 + i, true); put({ type: 'ammo', items: ammoItems() }, q.s, q.L); }
   if (mpm) pickups.forEach((q, i) => { q.uid = i; });
