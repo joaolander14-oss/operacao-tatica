@@ -233,11 +233,13 @@ function drawBodyDiagram(c, parts, x, y, h, hl) {
 function drawPickup(c, it) {
   const bob = Math.sin(it.t * 3) * 2;
   c.save(); c.translate(it.x, it.y + bob);
-  const col = it.type === 'med' ? '120,255,120' : it.type === 'ammo' ? '255,210,90' : it.type === 'gear' ? '190,140,255' : it.type === 'repair' ? '120,200,255' : it.type === 'grenade' ? '170,230,120' : '255,230,90';
+  const col = it.type === 'med' || it.type === 'heal' ? '120,255,120' : it.type === 'ammo' ? '255,210,90' : it.type === 'gear' ? '190,140,255' : it.type === 'repair' ? '120,200,255' : it.type === 'grenade' ? '170,230,120' : '255,230,90';
   const g = c.createRadialGradient(0, 0, 2, 0, 0, 26);
   g.addColorStop(0, 'rgba(' + col + ',.45)'); g.addColorStop(1, 'rgba(' + col + ',0)');
   c.fillStyle = g; c.beginPath(); c.arc(0, 0, 26, 0, PI2); c.fill();
-  if (it.type === 'med') {
+  if (it.type === 'heal') {
+    c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(0, 0, 10, 0, PI2); c.fill(); c.font = '15px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#000'; c.fillText(HMAP[it.kind].icon, 0, 1);
+  } else if (it.type === 'med') {
     c.fillStyle = '#f2f2f2'; c.fillRect(-9, -9, 18, 18); c.fillStyle = '#d33'; c.fillRect(-2.5, -7, 5, 14); c.fillRect(-7, -2.5, 14, 5);
   } else if (it.type === 'ammo') {
     c.fillStyle = '#4d5a34'; c.fillRect(-12, -8, 24, 16); c.fillStyle = '#2f3820'; c.fillRect(-12, -8, 24, 3);
@@ -284,6 +286,7 @@ function render() {
   }
 
   // zona de extração
+  if (MP.on && MP.sites.length) mpDrawSites(c2);
   if (G.mode !== 'survival' && G.mode !== 'mp') {
     const ex = extT.x * T + T / 2, ey = extT.y * T + T / 2, open = G.extractOpen;
     c2.save(); c2.translate(ex, ey);
@@ -451,6 +454,17 @@ function render() {
       c2.beginPath(); c2.arc(p.x, p.y, m.w.range * .8, Math.min(a0, a1), Math.max(a0, a1)); c2.stroke();
     }
     if (hasArmor) { c2.strokeStyle = 'rgba(143,220,255,.35)'; c2.lineWidth = 1.5; c2.beginPath(); c2.arc(p.x, p.y, 15, 0, PI2); c2.stroke(); }
+    if (p.equipT > 0 && w) {
+      const tot = w.eq || .6;
+      c2.fillStyle = 'rgba(0,0,0,.6)'; c2.fillRect(p.x - 15, p.y - 26, 30, 5);
+      c2.fillStyle = '#8fdcff'; c2.fillRect(p.x - 15, p.y - 26, 30 * clamp(1 - p.equipT / tot, 0, 1), 5);
+    }
+    if (p.healing) {
+      const h = p.healing, hd = HMAP[h.id];
+      c2.fillStyle = 'rgba(0,0,0,.6)'; c2.fillRect(p.x - 17, p.y - 34, 34, 6);
+      c2.fillStyle = '#6fe07a'; c2.fillRect(p.x - 17, p.y - 34, 34 * clamp(h.t / h.total, 0, 1), 6);
+      c2.font = '11px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'bottom'; c2.fillStyle = '#fff'; c2.fillText(hd.icon + ' ' + Math.max(0, h.total - h.t).toFixed(1) + 's', p.x, p.y - 36);
+    }
     if (p.reloading && w) {
       const pr = 1 - p.reloadT / p.reloadTotal;
       c2.fillStyle = 'rgba(0,0,0,.6)'; c2.fillRect(p.x - 15, p.y - 26, 30, 5);
@@ -808,6 +822,7 @@ window.addEventListener('keydown', e => {
     else if (e.code === 'KeyT') cycleThrowable();
     else if (e.code === 'KeyG') throwGrenade();
     else if (e.code === 'KeyH') useMed();
+    else if (e.code === 'KeyX') cycleHeal();
     else if (e.code === 'KeyV') useRepair();
     else if (e.code === 'KeyC') toggleHold();
   }
@@ -880,7 +895,9 @@ function frame(now) {
   if (G.state === 'play' || (MP.on && (G.state === 'paused' || G.state === 'inv'))) update(dt);
   if (G.state === 'play' || G.state === 'paused' || G.state === 'inv' || G.state === 'over') {
     if (player) {
-      render();
+      const sp = mpSpec();
+      if (sp) { const real = player, px = Object.create(real); px.x = sp.x; px.y = sp.y; px.L = sp.L; px.ang = sp.a; player = px; try { render(); } finally { player = real; } }
+      else render();
       if (G.state === 'play') { updateHUD(); drawMinimap(); }
     }
   } else {

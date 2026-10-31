@@ -368,6 +368,7 @@ function newPlayer() {
   const p = {
     x: spawnT.x * T + T / 2, y: spawnT.y * T + T / 2, r: 11, ang: -Math.PI / 4, L: -1,
     hp: 100, maxHp: 100, parts: makeParts(100), wi: 0, slots: [null, null, null], pool: {}, cons: { med: 2, grenade: 2, repair: 1 }, thr: { flash: 1, smoke: 1, molotov: 1, flare: 1, mine: 1 }, thrSel: 'frag',
+    equipT: 0, healing: null, healSel: 'medkit', hl: { bandage: 2, painkiller: 1, adrenaline: 1, splint: 1, surgery: 0 }, regen: 0, adr: 0,
     armor: { head: null, body: null }, durMap: {}, cool: 0, reloading: false, reloadT: 0, flash: 0, recoil: 0,
     walk: 0, moving: false, dead: false, speed: 185 * PACE.player, gCd: 0, mCd: 0, speedMul: 1, capMul: 1, consBonus: 0, consCap: 4,
     visMode: null, eyeVis: 0, eyeThermal: 0,
@@ -385,7 +386,7 @@ function newPlayer() {
     // escopetas: um pacote de cada tipo de cartucho compatível (troque com a tecla B)
     if (w.fam) for (const c of SHELL_FAMILIES[w.fam]) if (c !== w.cal) p.pool[c] = Math.min(ammoCap(c), (p.pool[c] || 0) + CALIBERS[c].pack * (G.custom ? 3 : 1));
   });
-  if (G.custom) { for (const k in p.thr) p.thr[k] = 3; p.cons.grenade = Math.min(p.consCap, 4); p.cons.med = Math.min(p.consCap, 4); }
+  if (G.custom) { for (const k in p.thr) p.thr[k] = 3; p.cons.grenade = Math.min(p.consCap, 4); p.cons.med = Math.min(p.consCap, 4); for (const k in p.hl) p.hl[k] = k === 'surgery' ? 2 : 3; }
   syncPlayerLoadout();
   return p;
 }
@@ -404,7 +405,10 @@ function die(ang) {
 function selectWeapon(i) {
   const p = player;
   if (!p || p.dead || G.state !== 'play' || i === p.wi || i < 0 || i >= 3 || !p.slots[i]) return;
-  p.wi = i; p.reloading = false; p.burstLeft = 0; p.rcMag = 0; p.rcN = 0; p.rcOff = 0; p.spin = 0;
+  p.wi = i; p.reloading = false; p.burstLeft = 0; p.rcMag = 0; p.rcN = 0; p.rcOff = 0; p.spin = 0; p.healing = null;
+  const ns = p.slots[i];
+  p.equipT = ns.w.eq || .6; sfx('swap');
+  if (!ns.w.melee && ns.mag === 0 && poolOf(ns.w) > 0) p.autoReload = true;     // arma vazia: carrega assim que estiver pronta
   p.cool = Math.max(p.cool, .2);
   showWeaponName(p.slots[i].w.name);
 }
@@ -413,6 +417,8 @@ function startReload() {
   if (!sl || p.reloading || p.dead || sl.w.melee) return;
   const w = sl.w;
   if (sl.mag >= w.mag || poolOf(w) <= 0) return;
+  if (p.equipT > 0) { p.autoReload = true; return; }
+  p.healing = null;
   p.reloading = true; p.burstLeft = 0;
   const slow = p.fx.oneArm && w.slot === 'primary' ? 1.4 : 1;
   p.reloadT = w.reload * slow; p.reloadTotal = p.reloadT;
@@ -472,6 +478,7 @@ function fireShot(w, sl) {
   const cal = CALIBERS[w.cal];
   const aimFx = p.fx.aim + (p.fx.oneArm && w.slot === 'primary' ? .06 : 0);
   const b0 = bullets.length;
+  p.healing = null;
   if (MP.on) G.protT = 0;
   for (let i = 0; i < n; i++) {
     const a = base + (w.pellets > 1 ? (i / (w.pellets - 1) - .5) * w.spread * 2 + rand(-.03, .03) : rand(-1, 1) * (w.spread * mult + aimFx));
@@ -508,7 +515,8 @@ function fireShot(w, sl) {
 
 function tryFire() {
   const p = player, sl = curSlot();
-  if (!sl || p.dead || p.cool > 0 || p.burstLeft > 0 || p.melee) return;
+  if (!sl || p.dead || p.cool > 0 || p.burstLeft > 0 || p.melee || p.equipT > 0) return;
+  if (MP.on && MP.phase === 'prep') return;
   const w = sl.w;
   if (w.melee) { tryMelee(w); return; }
   if (p.fx.armsDead) return;
@@ -527,7 +535,8 @@ function tryFire() {
 /* ---------- Corpo a corpo ---------- */
 function tryMelee(w) {
   const p = player;
-  if (p.cool > 0 || p.melee || p.dead || p.fx.armsDead) return;
+  if (p.cool > 0 || p.melee || p.dead || p.fx.armsDead || (MP.on && MP.phase === 'prep')) return;
+  p.healing = null;
   p.melee = { t: 0, dur: w.swing, hit: false, w, ang: p.ang };
   p.cool = w.delay; sfx('swing');
 }
@@ -588,13 +597,53 @@ function hurtPlayerBullet(b) {
 }
 
 /* ---------- Suprimentos ---------- */
+const healCount = (p, id) => id === 'medkit' ? p.cons.med : (p.hl[id] || 0);
+function healNeed(p, id) {
+  const hurt = PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98);
+  if (id === 'adrenaline') return p.adr <= 0;
+  if (id === 'splint') return ['armL', 'armR', 'legL', 'legR'].some(k => p.parts[k].hp < p.parts[k].max * .7);
+  if (id === 'painkiller') return hurt && p.regen <= 0;
+  return hurt;
+}
+function cycleHeal() {
+  const p = player;
+  if (!p || p.dead || G.state !== 'play') return;
+  const i = HEALS.findIndex(h => h.id === p.healSel);
+  for (let k = 1; k <= HEALS.length; k++) { const h = HEALS[(i + k) % HEALS.length]; if (healCount(p, h.id) > 0) { p.healSel = h.id; break; } }
+  sfx('swap'); banner(HMAP[p.healSel].icon + ' ' + HMAP[p.healSel].name.toUpperCase() + ' · ' + HMAP[p.healSel].time + 's');
+}
+// inicia o tratamento: cada item leva o seu tempo; atirar, golpear, arremessar ou trocar de arma interrompe
 function useMed() {
   const p = player;
-  if (!p || p.dead || G.state !== 'play' || p.cons.med <= 0 || p.mCd > 0) return;
-  if (!PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98)) return;
-  p.cons.med--; p.mCd = 1; healAll(p, .5);
-  addText(p.x, p.y - 24, 'FERIMENTOS TRATADOS', '#8be36a', 12); sfx('heal');
-  for (let i = 0; i < 8; i++) spawnPart({ x: p.x + rand(-8, 8), y: p.y + rand(-8, 8), vx: rand(-20, 20), vy: rand(-60, -20), life: .8, size: 2.5, color: '#8be36a', kind: 'dot' });
+  if (!p || p.dead || G.state !== 'play') return;
+  if (p.healing) { p.healing = null; addText(p.x, p.y - 26, 'INTERROMPIDO', '#ffb070', 11); return; }
+  let id = p.healSel;
+  if (healCount(p, id) <= 0) { const alt = HEALS.find(h => healCount(p, h.id) > 0 && healNeed(p, h.id)); if (!alt) { addText(p.x, p.y - 26, 'SEM ' + HMAP[id].name.toUpperCase(), '#ff8a70', 12); return; } id = p.healSel = alt.id; }
+  if (!healNeed(p, id)) { addText(p.x, p.y - 26, id === 'adrenaline' ? 'JÁ ATIVA' : 'NADA A TRATAR', '#cfe8c8', 11); return; }
+  p.reloading = false;
+  p.healing = { id, t: 0, total: HMAP[id].time }; sfx('swap');
+}
+function finishHeal(p, id) {
+  const P = p.parts, lift = (k, frac) => { if (P[k].hp > 0) P[k].hp = Math.min(P[k].max, P[k].hp + P[k].max * frac); };
+  if (id === 'bandage') { for (const k of PARTS) { if (P[k].hp > 0 && P[k].hp < P[k].max * .56) P[k].hp = P[k].max * .56; else lift(k, .08); } }
+  else if (id === 'painkiller') p.regen = 10;
+  else if (id === 'adrenaline') { p.adr = 12; lift('torso', .12); lift('head', .12); }
+  else if (id === 'splint') { for (const k of ['armL', 'armR', 'legL', 'legR']) { if (P[k].hp <= 0) P[k].hp = P[k].max * .5; else lift(k, .2); } }
+  else if (id === 'medkit') healAll(p, .5);
+  else if (id === 'surgery') { for (const k of PARTS) if (P[k].hp > 0 || (k !== 'head' && k !== 'torso')) P[k].hp = P[k].max; }
+  recalcFx(p);
+  if (id === 'medkit') p.cons.med--; else p.hl[id]--;
+  addText(p.x, p.y - 24, HMAP[id].name.toUpperCase() + ' APLICADO', '#8be36a', 12); sfx('heal');
+  for (let i = 0; i < 10; i++) spawnPart({ x: p.x + rand(-8, 8), y: p.y + rand(-8, 8), vx: rand(-20, 20), vy: rand(-60, -20), life: .8, size: 2.5, color: '#8be36a', kind: 'dot' });
+  if (healCount(p, id) <= 0) { const nx = HEALS.find(h => healCount(p, h.id) > 0); if (nx) p.healSel = nx.id; }
+}
+function updateHeal(p, dt) {
+  if (p.adr > 0) p.adr -= dt;
+  if (p.regen > 0) { p.regen -= dt; for (const k of PARTS) { const Q = p.parts[k]; if (Q.hp > 0 && Q.hp < Q.max) Q.hp = Math.min(Q.max, Q.hp + Q.max * .03 * dt); } recalcFx(p); }
+  const h = p.healing; if (!h) return;
+  h.t += dt;
+  if (Math.random() < dt * 8) spawnPart({ x: p.x + rand(-8, 8), y: p.y + rand(-8, 8), vx: 0, vy: rand(-40, -15), life: .5, size: 2, color: '#8be36a', kind: 'dot' });
+  if (h.t >= h.total) { p.healing = null; finishHeal(p, h.id); }
 }
 function useRepair() {
   const p = player;
@@ -618,9 +667,10 @@ function cycleThrowable() {
 }
 function throwGrenade() {
   const p = player;
-  if (!p || p.dead || G.state !== 'play' || p.gCd > 0 || p.fx.armsDead) return;
+  if (!p || p.dead || G.state !== 'play' || p.gCd > 0 || p.fx.armsDead || (MP.on && MP.phase === 'prep')) return;
   const id = p.thrSel;
   if (thrCount(p, id) <= 0) { addText(p.x, p.y - 26, 'SEM ' + TMAP[id].short.toUpperCase(), '#ff8a70', 12); p.gCd = .4; return; }
+  p.healing = null;
   if (id === 'mine') {
     const mn = { x: p.x + Math.cos(p.ang) * 16, y: p.y + Math.sin(p.ang) * 16, L: p.L, ang: p.ang, arm: 1.5, owner: MP.on ? MP.myId : undefined };
     mines.push(mn); if (MP.on) mpSendThrow(mn, true);
@@ -729,7 +779,8 @@ function updateStairs(p, dt) {
 function updatePlayer(dt) {
   const p = player;
   if (p.dead) return;
-  p.cool -= dt; p.flash -= dt; p.recoil = Math.max(0, p.recoil - dt * 10); p.gCd -= dt; p.mCd -= dt; p.rcT += dt;
+  p.cool -= dt; p.flash -= dt; p.recoil = Math.max(0, p.recoil - dt * 10); p.gCd -= dt; p.mCd -= dt; p.rcT += dt; p.equipT = Math.max(0, p.equipT - dt);
+  updateHeal(p, dt); if (p.dead) return;
   p.showT = Math.max(0, p.showT - dt);
   if (p.kvx || p.kvy) { moveEntity(p, p.kvx * dt, p.kvy * dt); const dk = Math.exp(-dt * 10); p.kvx *= dk; p.kvy *= dk; if (Math.abs(p.kvx) + Math.abs(p.kvy) < 2) p.kvx = p.kvy = 0; }
   bleedTick(p, dt);
@@ -748,6 +799,8 @@ function updatePlayer(dt) {
   p.walking = !touchMode && (k.has('ShiftLeft') || k.has('ShiftRight'));
   let sp = p.speed * (w ? w.speedMod : 1) * p.speedMul * (p.walking ? .55 : 1) * p.fx.speed;
   if (w && w.spin && p.spin > .3) sp *= .6;
+  if (p.adr > 0) sp *= 1.25;
+  if (p.healing) sp *= .6;
   if (ml > .05) { moveEntity(p, mx * sp * dt, my * sp * dt); p.walk += ml * sp * dt * .12; }
   p.moving = ml > .05;
   updateStairs(p, dt);
@@ -846,7 +899,7 @@ function dropPickup(x, y, forced, boost, L = -1) {
   let it;
   if (boost) it = { type: 'gear', item: randomGear(true) };
   else if (r < .45) it = { type: 'ammo', items: ammoItems() };
-  else if (r < .68) it = { type: 'med' };
+  else if (r < .68) it = Math.random() < .4 ? { type: 'med' } : { type: 'heal', kind: ['bandage', 'bandage', 'painkiller', 'adrenaline', 'splint', 'surgery'][(Math.random() * 6) | 0] };
   else if (r < .82) it = { type: 'grenade' };
   else if (r < .92) it = { type: 'repair' };
   else it = { type: 'gear', item: randomGear(false) };
@@ -862,6 +915,11 @@ function collect(it) {
   if (it.type === 'med') {
     if (p.cons.med >= p.consCap) return false;
     p.cons.med++; addText(p.x, p.y - 24, '+KIT MÉDICO', '#8be36a', 13); sfx('pickup'); return true;
+  }
+  if (it.type === 'heal') {
+    const h = HMAP[it.kind];
+    if ((p.hl[it.kind] || 0) >= h.cap) return false;
+    p.hl[it.kind] = (p.hl[it.kind] || 0) + 1; addText(p.x, p.y - 24, '+' + h.name.toUpperCase(), '#8be36a', 13); sfx('pickup'); return true;
   }
   if (it.type === 'grenade') {
     if (!it.kind) it.kind = ['frag', 'frag', 'flash', 'smoke', 'molotov', 'flare', 'mine'][(Math.random() * 7) | 0];
@@ -1084,6 +1142,7 @@ function makeNoise(x, y, radius) {
   }
 }
 function patrolTo(e) {
+  if (e.mpId != null && mpBotPatrol(e)) return;
   if (e.mpId != null && Math.random() < .65) { const hs = mpHumans().filter(h => !(mpTdm() && mpTargetTeam(h) === e.team)); if (hs.length) { const h = hs[(Math.random() * hs.length) | 0]; e.home = { x: h.x + rand(-140, 140), y: h.y + rand(-140, 140) }; } }
   const fl = e.L >= 0 ? 1 : 0;
   for (let i = 0; i < 10; i++) {
@@ -1419,6 +1478,7 @@ function updateCharges(dt) {
 }
 
 function objectiveTarget() {
+  if (G.mode === 'mp') return MP.on ? mpObjTarget() : null;
   if (G.extractOpen) return { x: extT.x * T + T / 2, y: extT.y * T + T / 2, col: '#7ddc5a' };
   const near = list => { let best = null, bd = 1e9; for (const t of list) { const d = Math.hypot(t.x - player.x, t.y - player.y); if (d < bd) { bd = d; best = t; } } return best; };
   if (G.mode === 'intel') { const t = near(pickups.filter(i => i.type === 'intel')); return t && { x: t.x, y: t.y, col: '#ffd24a' }; }
@@ -1640,6 +1700,7 @@ function startMission(mode, level, custom) {
   const mpm = mode === 'mp';
   for (let i = 0; i < (mpm ? 14 : 6); i++) put({ type: 'ammo', items: ammoItems() }, pickSpot(SPOTS, 8, []));
   for (let i = 0; i < (mpm ? 6 : 2); i++) put({ type: 'med' }, pickSpot(SPOTS, 10, []));
+  for (let i = 0; i < (mpm ? 8 : 3); i++) put({ type: 'heal', kind: ['bandage', 'bandage', 'painkiller', 'adrenaline', 'splint', 'surgery'][(Math.random() * 6) | 0] }, pickSpot(SPOTS, 10, []));
   for (let i = 0; i < (mpm ? 4 : 1); i++) put({ type: 'grenade' }, pickSpot(SPOTS, 10, []));
   for (let i = 0; i < (mpm ? 4 : 1); i++) { const q = poi(3 + i, true); put({ type: 'gear', item: randomGear(false) }, q.s, q.L); }
   for (let i = 0; i < (mpm ? 3 : 1); i++) { const q = poi(4 + i, true); put({ type: 'ammo', items: ammoItems() }, q.s, q.L); }
@@ -1694,7 +1755,7 @@ function update(dt) {
 
   updatePlayer(dt);
   for (const a of allies) updateAlly(a, dt);
-  for (const e of enemies) if (!e.dead) updateEnemy(e, dt);
+  for (const e of enemies) if (!e.dead && !(MP.on && MP.phase === 'prep')) updateEnemy(e, dt);
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i]; if (a.dead) continue;
     for (let j = i + 1; j < enemies.length; j++) {
@@ -1710,6 +1771,7 @@ function update(dt) {
   updateThrowFx(dt);
   updateCharges(dt);
   updateInteract(dt);
+  if (MP.on) mpAfter(dt);
   enemies = enemies.filter(e => !e.dead);
   updateParticles(dt);
   for (const it of pickups) it.t += dt;
@@ -1738,10 +1800,10 @@ function clampCam() {
   cam.y = WORLD_H > h ? clamp(cam.y, 0, WORLD_H - h) : (WORLD_H - h) / 2;
 }
 function updateCamera(dt) {
-  const p = player, w = vw / S, h = vh / S;
+  const sp = mpSpec(), p = sp || player, w = vw / S, h = vh / S;
   let lx = 0, ly = 0;
   const wp = curW(), look = wp && !wp.melee ? (wp.look || 1) : 1, long = wp && wp.range >= 1300;
-  if (!touchMode) {
+  if (sp) { /* espectador: câmera centrada no aliado */ } else if (!touchMode) {
     const wx = cam.x + input.mx / S - p.x, wy = cam.y + input.my / S - p.y;
     const f = (long ? .6 : .25) * look, mx = (long ? 260 : 120) * look, d = Math.hypot(wx, wy);
     const k = d > 0 ? Math.min(d * f, mx) / d : 0;

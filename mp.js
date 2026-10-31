@@ -31,7 +31,8 @@ const MP = {
   peer: null, isHost: false, myId: 0, code: '',
   conns: new Map(), hostConn: null, nextId: 1,
   players: new Map(), remotes: new Map(), order: [],
-  cfg: { gm: 'dm', kl: 15, tl: 8, night: false, seed: 0, bots: 0, bt: 'mix' }, botRespawns: [],
+  cfg: { gm: 'dm', kl: 15, tl: 8, night: false, seed: 0, bots: 0, bt: 'mix', rounds: 6 }, botRespawns: [],
+  phase: null, phaseT: 0, round: 0, swap: 0, sites: [], pools: [[], []], bomb: null, cap: 0, capIn: [0, 0], prog: 0, sideN: [0, 0], pendingRnd: null,
   name: '', joinCode: '', status: '', ended: false,
   feed: [], respawns: [], teamScore: [0, 0],
   respawnT: 0, sendT: 0, hudT: 0, lastMsg: '',
@@ -40,14 +41,19 @@ try { const u = new URLSearchParams(location.search).get('sala'); if (u) MP.join
 
 /* ---------- Auxiliares ---------- */
 const mpTeamOf = id => { const p = MP.players.get(id); return p ? p.team : 0; };
-const mpTdm = () => MP.cfg.gm === 'tdm';
+const MP_GAMEMODES = ['dm', 'tdm', 'bomb', 'zone'];
+const mpTdm = () => MP.cfg.gm !== 'dm';
+const mpRounds = () => MP.cfg.gm === 'bomb' || MP.cfg.gm === 'zone';
+// lado: nas equipes normais = equipe; nos modos de rounds 0 = defesa (azul), 1 = ataque (vermelho), trocando na metade
+const mpSide = id => mpRounds() ? ((mpTeamOf(id) & 1) ^ MP.swap) : (mpTeamOf(id) & 1);
+const mpTeamLabel = t => mpRounds() ? (t ? 'TIME 2' : 'TIME 1') : MP_TEAMS[t & 1].name;
 const mpFriend = id => id != null && id !== MP.myId && mpTdm() && mpTeamOf(id) === mpTeamOf(MP.myId);
 function mpLook(id) {
-  if (mpTdm()) return MP_TEAMS[mpTeamOf(id) & 1].look;
+  if (mpTdm()) return MP_TEAMS[mpSide(id)].look;
   const i = Math.max(0, MP.order.indexOf(id)), h = (i * 47 + 12) % 360;
   return { body: `hsl(${h},42%,36%)`, vest: `hsl(${h},40%,22%)`, helmet: `hsl(${h},40%,28%)`, stripe: `hsl(${h},85%,72%)` };
 }
-const mpColor = id => mpTdm() ? MP_TEAMS[mpTeamOf(id) & 1].color : mpLook(id).stripe;
+const mpColor = id => mpTdm() ? MP_TEAMS[mpSide(id)].color : mpLook(id).stripe;
 function mpLoad() { const c = SAVE.custom; return { weapons: c.weapons.slice(0, 3), attach: JSON.parse(JSON.stringify(c.attach || {})), gear: Object.assign({}, c.gear) }; }
 function mpCleanLoad(l) {
   const out = { weapons: [null, null, null], attach: {}, gear: {} };
@@ -198,7 +204,7 @@ function mpApplyLobby(m) {
   }
   MP.players = next;
   if (m.cfg && typeof m.cfg === 'object') {
-    MP.cfg.gm = m.cfg.gm === 'tdm' ? 'tdm' : 'dm';
+    MP.cfg.gm = MP_GAMEMODES.includes(m.cfg.gm) ? m.cfg.gm : 'dm'; MP.cfg.rounds = clamp(mpNum(m.cfg.rounds, 6) | 0, 2, 12);
     MP.cfg.kl = clamp(mpNum(m.cfg.kl, 15) | 0, 3, 100); MP.cfg.tl = clamp(mpNum(m.cfg.tl, 8) | 0, 1, 60); MP.cfg.night = !!m.cfg.night;
     MP.cfg.bots = clamp(mpNum(m.cfg.bots, 0) | 0, 0, MP_BOT_MAX); MP.cfg.bt = MP_BOT_POOL[m.cfg.bt] ? m.cfg.bt : 'mix';
   }
@@ -224,6 +230,9 @@ function mpHandle(m) {
     case 'dead': if (MP.on) mpOnDead(m, pl); break;
     case 'pk': if (MP.on) mpOnPick(m); break;
     case 'end': if (m.f === 0) mpFinish(m.r); break;
+    case 'rnd': if (m.f === 0) mpOnRound(m); break;
+    case 'obj': if (MP.on) { if (m.k === 'plant') mpApplyPlant(m.s); else if (m.k === 'defuse') mpApplyDefuse(); } break;
+    case 'cap': if (MP.on && m.f === 0) { MP.cap = clamp(mpNum(m.v), 0, 100); if (Array.isArray(m.i)) MP.capIn = [m.i[0] | 0, m.i[1] | 0]; } break;
   }
 }
 
@@ -239,13 +248,13 @@ function mpOnState(m) {
   const r = mpRemote(rid);
   r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
   if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; }
-  r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
+  r.hl = !!m.hl; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
   if (m.fl) r.fl = .06;
   if (typeof m.ps === 'string' && m.ps.length === 6) { r.ps = m.ps.split('').map(ch => clamp(+ch || 0, 0, 4)); mpPartsOf(r); }
 }
 function mpSendState() {
   const p = player, w = curW();
-  mpSend({ t: 'st', x: mpR(p.x), y: mpR(p.y), L: p.L, a: +p.ang.toFixed(2), w: p.melee ? p.melee.w.id : (w ? w.id : null), h: Math.round(p.hp), d: p.dead ? 1 : 0, pr: G.protT > 0 ? 1 : 0, c: p.fx && p.fx.crawl ? 1 : 0, fl: p.flash > 0 ? 1 : 0, ps: PARTS.map(k => pState(p, k)).join('') });
+  mpSend({ t: 'st', x: mpR(p.x), y: mpR(p.y), L: p.L, a: +p.ang.toFixed(2), w: p.melee ? p.melee.w.id : (w ? w.id : null), h: Math.round(p.hp), d: p.dead ? 1 : 0, pr: G.protT > 0 ? 1 : 0, c: p.fx && p.fx.crawl ? 1 : 0, fl: p.flash > 0 ? 1 : 0, hl: p.healing ? 1 : 0, ps: PARTS.map(k => pState(p, k)).join('') });
   // o anfitrião também envia o estado dos bots
   if (MP.isHost) for (const e of enemies) if (e.mpId != null && !e.dead) mpSend({ t: 'st', b: e.mpId, x: mpR(e.x), y: mpR(e.y), L: e.L, a: +e.ang.toFixed(2), w: e.ty.weapon, h: Math.max(1, Math.round(e.hp / e.maxHp * 100)), d: 0, pr: 0, c: e.fx && e.fx.crawl ? 1 : 0, fl: e.flash > 0 ? 1 : 0, ps: PARTS.map(k => pState(e, k)).join('') });
 }
@@ -359,7 +368,7 @@ function mpBotMelee(e, t, ang) {
 }
 const mpHumans = () => { const a = []; if (!player.dead) a.push(player); for (const r of MP.remotes.values()) if (!r.bot && !r.dead) a.push(r); return a; };
 const mpTargetTeam = c => c === player ? mpTeamOf(MP.myId) : mpTeamOf(c.id);
-function mpBotLook(e) { const t = e.ty; return { color: t.color, vest: t.vest, helmet: t.helmet, stripe: mpTdm() ? MP_TEAMS[e.team & 1].color : t.stripe }; }
+function mpBotLook(e) { const t = e.ty; return { color: t.color, vest: t.vest, helmet: t.helmet, stripe: mpTdm() ? MP_TEAMS[mpSide(e.mpId)].color : t.stripe }; }
 // quem pode nos ferir com explosões/fogo (origem = id do dono)
 function mpHurtFrom(src) {
   if (!MP.on) return true;
@@ -405,7 +414,7 @@ function mpFeed(html) { MP.feed.push({ html, t: 7 }); if (MP.feed.length > 6) MP
 function mpLocalDied() {
   const killer = (G.time - (G.lastHitT || -99) < 15) ? G.lastHitBy : null;
   const p = player;
-  MP.respawnT = MP_RESPAWN;
+  MP.respawnT = MP.cfg.gm === 'bomb' ? 1e9 : MP.cfg.gm === 'zone' ? 6 : MP_RESPAWN;
   const m = { t: 'dead', v: MP.myId, k: killer == null ? null : killer, w: G.lastHitW || null, x: mpR(p.x), y: mpR(p.y), a: +p.ang.toFixed(2), L: p.L };
   mpSend(m);
   m.f = MP.myId; mpOnDead(m, MP.players.get(MP.myId));
@@ -414,9 +423,9 @@ function mpLocalDied() {
 function mpOnDead(m, vic) {
   if (!vic || (m.v !== m.f && !(m.f === 0 && vic.bot))) return;
   const killer = m.k != null ? MP.players.get(m.k | 0) : null;
-  vic.deaths++;
-  if (killer && killer !== vic && !(mpTdm() && killer.team === vic.team)) { killer.kills++; if (mpTdm()) MP.teamScore[killer.team & 1]++; if (killer.id === MP.myId) { G.kills++; sfx('kill'); banner('ABATEU ' + vic.name.toUpperCase()); } }
-  else if (!killer || killer === vic) { vic.kills = Math.max(0, vic.kills - 1); if (mpTdm()) MP.teamScore[vic.team & 1] = Math.max(0, MP.teamScore[vic.team & 1] - 1); }
+  vic.deaths++; vic.alive = false;
+  if (killer && killer !== vic && !(mpTdm() && killer.team === vic.team)) { killer.kills++; if (mpTdm() && !mpRounds()) MP.teamScore[killer.team & 1]++; if (killer.id === MP.myId) { G.kills++; sfx('kill'); banner('ABATEU ' + vic.name.toUpperCase()); } }
+  else if (!killer || killer === vic) { vic.kills = Math.max(0, vic.kills - 1); if (mpTdm() && !mpRounds()) MP.teamScore[vic.team & 1] = Math.max(0, MP.teamScore[vic.team & 1] - 1); }
   const wn = m.w && WMAP[m.w] ? WMAP[m.w].name : (m.w === 'boom' ? 'explosão' : 'fogo/sangramento');
   const col = mpColor;
   mpFeed(killer && killer !== vic ? `<b style="color:${col(killer.id)}">${mpEsc(killer.name)}</b> <i>${mpEsc(wn)}</i> <b style="color:${col(vic.id)}">${mpEsc(vic.name)}</b>` : `<b style="color:${col(vic.id)}">${mpEsc(vic.name)}</b> <i>morreu</i>`);
@@ -437,12 +446,13 @@ function mpBotDied(e) {
   const k = e.lastBy;
   const m = { t: 'dead', v: e.mpId, k: k == null ? null : k, w: e.lastW || null, x: mpR(e.x), y: mpR(e.y), a: 0, L: e.L };
   mpSend(m); m.f = 0; mpOnDead(m, vic);
-  MP.botRespawns.push({ at: G.time + 5, id: e.mpId });
+  if (MP.cfg.gm !== 'bomb') MP.botRespawns.push({ at: G.time + (MP.cfg.gm === 'zone' ? 8 : 5), id: e.mpId });
 }
 function mpSpawnBot(p, spot) {
-  const s = spot || mpFarSpot(mpHumans());
+  const pool = mpRounds() ? MP.pools[mpSide(p.id)] : null;
+  const s = spot || (pool && pool.length ? pool[(Math.random() * pool.length) | 0] : mpFarSpot(mpHumans()));
   const e = makeEnemy(p.ty, s.x * T + T / 2, s.y * T + T / 2, -1);
-  e.mpId = p.id; e.team = p.team; e.name = p.name;
+  e.mpId = p.id; e.team = p.team; e.name = p.name; e.site = (Math.random() * 2) | 0;
   enemies.push(e);
 }
 function mpFarSpot(list) {
@@ -455,7 +465,7 @@ function mpFarSpot(list) {
   return best;
 }
 function mpCheckWin() {
-  if (!MP.isHost || MP.ended) return;
+  if (!MP.isHost || MP.ended || mpRounds()) return;
   const kl = MP.cfg.kl;
   const hit = mpTdm() ? MP.teamScore.some(s => s >= kl) : [...MP.players.values()].some(p => p.kills >= kl);
   if (hit) { mpSend({ t: 'end', r: 'limit' }); mpFinish('limit'); }
@@ -473,7 +483,7 @@ function mpFinish(why) {
   else if (mpTdm()) {
     const a = MP.teamScore[0], b = MP.teamScore[1], win = a === b ? -1 : (a > b ? 0 : 1);
     title = win < 0 ? 'EMPATE' : win === (me ? me.team : 0) ? '<span>VITÓRIA</span>' : 'DERROTA';
-    sub = `AZUL ${a} × ${b} VERMELHO · ` + (why === 'time' ? 'tempo esgotado' : 'meta de abates');
+    sub = (mpRounds() ? `TIME 1 ${a} × ${b} TIME 2 · rounds concluídos` : `AZUL ${a} × ${b} VERMELHO · ` + (why === 'time' ? 'tempo esgotado' : 'meta de abates'));
   } else {
     const best = list[0];
     title = best && me && best.id === me.id ? '<span>VITÓRIA</span>' : 'FIM DA PARTIDA';
@@ -481,7 +491,7 @@ function mpFinish(why) {
   }
   $('endTitle').innerHTML = title; $('endSub').innerHTML = sub;
   $('endStats').innerHTML = '<table class="sbtab"><tr><th>#</th><th>Jogador</th>' + (mpTdm() ? '<th>Equipe</th>' : '') + '<th>Abates</th><th>Mortes</th></tr>' +
-    list.map((p, i) => `<tr class="${p.id === MP.myId ? 'me' : ''}"><td>${i + 1}</td><td style="color:${mpColor(p.id)}">${mpEsc(p.name)}</td>` + (mpTdm() ? `<td>${MP_TEAMS[p.team & 1].name}</td>` : '') + `<td>${p.kills}</td><td>${p.deaths}</td></tr>`).join('') + '</table>';
+    list.map((p, i) => `<tr class="${p.id === MP.myId ? 'me' : ''}"><td>${i + 1}</td><td style="color:${mpColor(p.id)}">${mpEsc(p.name)}</td>` + (mpTdm() ? `<td>${mpTeamLabel(p.team)}</td>` : '') + `<td>${p.kills}</td><td>${p.deaths}</td></tr>`).join('') + '</table>';
   for (const id of ['btnNext', 'btnRetry', 'btnEndArsenal']) $(id).classList.add('hidden');
   $('btnMpLobby').classList.toggle('hidden', why === 'host');
   $('endScreen').classList.remove('hidden');
@@ -499,7 +509,7 @@ function mpStartHost() {
 }
 function mpBegin(cfg, order) {
   if (!cfg || !Array.isArray(order) || !order.includes(MP.myId)) return;
-  MP.cfg = { gm: cfg.gm === 'tdm' ? 'tdm' : 'dm', kl: clamp(mpNum(cfg.kl, 15) | 0, 3, 100), tl: clamp(mpNum(cfg.tl, 8) | 0, 1, 60), night: !!cfg.night, seed: mpNum(cfg.seed) >>> 0, bots: MP.cfg.bots | 0, bt: MP.cfg.bt };
+  MP.cfg = { gm: MP_GAMEMODES.includes(cfg.gm) ? cfg.gm : 'dm', rounds: clamp(mpNum(cfg.rounds, 6) | 0, 2, 12), kl: clamp(mpNum(cfg.kl, 15) | 0, 3, 100), tl: clamp(mpNum(cfg.tl, 8) | 0, 1, 60), night: !!cfg.night, seed: mpNum(cfg.seed) >>> 0, bots: MP.cfg.bots | 0, bt: MP.cfg.bt };
   MP.order = order.map(n => n | 0);
   for (const p of MP.players.values()) { p.kills = 0; p.deaths = 0; }
   MP.teamScore = [0, 0]; MP.feed = []; MP.remotes.clear(); MP.respawns = []; MP.ended = false; MP.respawnT = 0; MP.sendT = 0; MP.hudT = 0;
@@ -513,10 +523,14 @@ function mpBegin(cfg, order) {
   mpPlace(s);
   G.protT = MP_PROT;
   MP.botRespawns = []; MP.botN = [...MP.players.values()].filter(p => p.bot).length;
-  if (MP.isHost) MP.order.forEach((id, i) => { const p = MP.players.get(id); if (p && p.bot) mpSpawnBot(p, lay[i]); });
+  MP.swap = 0; MP.round = 0; MP.bomb = null; MP.cap = 0; MP.sites = []; MP.phase = null; MP.prog = 0;
+  for (const p of MP.players.values()) p.alive = true;
+  if (mpRounds()) { MP.phase = 'wait'; mpPickSites(); mpBuildPools(); }
+  else if (MP.isHost) MP.order.forEach((id, i) => { const p = MP.players.get(id); if (p && p.bot) mpSpawnBot(p, lay[i]); });
+  if (MP.pendingRnd) { const pm = MP.pendingRnd; MP.pendingRnd = null; mpOnRound(pm); }
   mpBuildHud();
   mpRenderFeed();
-  banner(mpTdm() ? 'EQUIPES — META ' + MP.cfg.kl + ' ABATES' : 'TODOS CONTRA TODOS — META ' + MP.cfg.kl + ' ABATES');
+  if (!mpRounds()) banner(mpTdm() ? 'EQUIPES — META ' + MP.cfg.kl + ' ABATES' : 'TODOS CONTRA TODOS — META ' + MP.cfg.kl + ' ABATES');
 }
 // pontos de nascimento espalhados (determinísticos: todos calculam igual)
 function mpSpawnLayout(n) {
@@ -540,10 +554,11 @@ function mpPlace(s) {
 function mpRespawn() {
   newPlayer(); buildSlots();
   let best = SPOTS[0], bd = -1;
+  const pl = mpRounds() ? MP.pools[mpSide(MP.myId)] : null;
   for (let i = 0; i < 50; i++) {
-    const s = SPOTS[(Math.random() * SPOTS.length) | 0], sx = s.x * T + T / 2, sy = s.y * T + T / 2;
+    const s = pl && pl.length ? pl[(Math.random() * pl.length) | 0] : SPOTS[(Math.random() * SPOTS.length) | 0], sx = s.x * T + T / 2, sy = s.y * T + T / 2;
     let d = 1e9; for (const r of MP.remotes.values()) if (!r.dead) d = Math.min(d, Math.hypot(r.x - sx, r.y - sy));
-    if (d > bd) { bd = d; best = s; }
+    if (pl || d > bd) { bd = d; best = s; if (pl) break; }
   }
   mpPlace(best);
   G.visOn = false; G.hurtFlash = 0; G.flashT = 0; G.protT = MP_PROT; G.endTimer = 0; G.reason = '';
@@ -553,6 +568,7 @@ function mpRespawn() {
 /* ---------- Atualização por quadro ---------- */
 function mpUpdate(dt) {
   G.protT = Math.max(0, (G.protT || 0) - dt);
+  if (mpRounds()) mpHostTick(dt);
   if (player.dead) { MP.respawnT -= dt; if (MP.respawnT <= 0) mpRespawn(); }
   MP.sendT -= dt;
   if (MP.sendT <= 0) { MP.sendT = MP_SEND; mpSendState(); }
@@ -566,11 +582,11 @@ function mpUpdate(dt) {
       if (od < md && od > .01) moveEntity(player, ox / od * (md - od) * .5, oy / od * (md - od) * .5);
     }
   }
-  if (MP.isHost) for (let i = MP.botRespawns.length - 1; i >= 0; i--) if (G.time >= MP.botRespawns[i].at) { const p = MP.players.get(MP.botRespawns[i].id); MP.botRespawns.splice(i, 1); if (p) mpSpawnBot(p); }
+  if (MP.isHost && !(mpRounds() && MP.phase !== 'live')) for (let i = MP.botRespawns.length - 1; i >= 0; i--) if (G.time >= MP.botRespawns[i].at) { const p = MP.players.get(MP.botRespawns[i].id); MP.botRespawns.splice(i, 1); if (p) mpSpawnBot(p); }
   for (let i = MP.respawns.length - 1; i >= 0; i--) if (G.time >= MP.respawns[i].at) { pickups.push(MP.respawns[i].it); MP.respawns.splice(i, 1); }
   for (const f of MP.feed) f.t -= dt;
   if (MP.feed.length && MP.feed[0].t <= 0) { MP.feed.shift(); mpRenderFeed(); }
-  if (MP.isHost && !MP.ended && G.time >= MP.cfg.tl * 60) { mpSend({ t: 'end', r: 'time' }); mpFinish('time'); return; }
+  if (MP.isHost && !MP.ended && !mpRounds() && G.time >= MP.cfg.tl * 60) { mpSend({ t: 'end', r: 'time' }); mpFinish('time'); return; }
   MP.hudT -= dt;
   if (MP.hudT <= 0) { MP.hudT = .25; mpUpdateHud(); }
 }
@@ -586,8 +602,9 @@ function mpDraw(c, p, pts) {
     r.vis = canView(p.L, r.L, r.x, r.y) && seesEnemy(p, r, d, pts);
     if (!r.vis) { r.seenT = Math.max(0, (r.seenT || 0) - G.dt); if (r.seenT > 0 && canView(p.L, r.L, r.x, r.y) && d < VIS) r.vis = true; } else r.seenT = .22;
     if (!r.vis) continue;
-    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = pl && pl.bot ? ETYPES[pl.ty] : null, look = bt ? { body: bt.color, vest: bt.vest, helmet: bt.helmet, stripe: mpTdm() ? MP_TEAMS[pl.team & 1].color : bt.stripe } : mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
+    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = pl && pl.bot ? ETYPES[pl.ty] : null, look = bt ? { body: bt.color, vest: bt.vest, helmet: bt.helmet, stripe: mpTdm() ? MP_TEAMS[mpSide(pl.id)].color : bt.stripe } : mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
     drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
+    if (r.hl) { c.fillStyle = '#6fe07a'; c.font = 'bold 14px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('✚', r.x + 16, r.y - 14); c.fillText('✚', r.x + 16, r.y - 14); }
     if (r.pr) { c.strokeStyle = 'rgba(143,220,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(r.x, r.y, 17, 0, PI2); c.stroke(); c.setLineDash([]); }
     const friend = mpFriend(r.id);
     if (friend || r.hp < 100) {
@@ -606,6 +623,8 @@ function mpDraw(c, p, pts) {
   }
 }
 function mpMinimap(m) {
+  for (const S of MP.sites) { m.fillStyle = MP.cfg.gm === 'zone' ? '#ffd24a' : '#ff9a3a'; m.fillRect(S.x / T * MINI_S - 3, S.y / T * MINI_S - 3, 7, 7); }
+  if (MP.bomb && !MP.bomb.defused) { m.fillStyle = '#ff3a2a'; m.fillRect(MP.bomb.x / T * MINI_S - 4, MP.bomb.y / T * MINI_S - 4, 9, 9); }
   for (const r of MP.remotes.values()) {
     if (r.dead) continue;
     const friend = mpFriend(r.id);
@@ -621,6 +640,7 @@ function mpBuildHud() {
 function mpRenderFeed() { $('mpFeed').innerHTML = MP.feed.map(f => `<div>${f.html}</div>`).join(''); }
 function mpTimeLeft() { return Math.max(0, MP.cfg.tl * 60 - G.time); }
 function mpObjText() {
+  if (mpRounds()) return mpRoundText();
   const t = fmtTime(mpTimeLeft());
   if (mpTdm()) return `AZUL ${MP.teamScore[0]} × ${MP.teamScore[1]} VERMELHO · meta ${MP.cfg.kl} · ${t}`;
   return `Todos contra todos · meta ${MP.cfg.kl} abates · ${t}`;
@@ -630,7 +650,7 @@ function mpUpdateHud() {
   const top = list.slice(0, 5);
   $('mpBoard').innerHTML = top.map(p => `<div class="${p.id === MP.myId ? 'me' : ''}"><i style="background:${mpColor(p.id)}"></i><span>${mpEsc(p.name)}</span><b>${p.kills}</b></div>`).join('');
   const rs = $('mpRespawn');
-  if (player.dead) { rs.textContent = 'Você foi abatido — renascendo em ' + Math.max(1, Math.ceil(MP.respawnT)) + 's'; rs.classList.remove('hidden'); } else rs.classList.add('hidden');
+  if (player.dead) { rs.textContent = MP.respawnT > 30 ? 'Você caiu — assistindo um aliado até o próximo round' : 'Você foi abatido — renascendo em ' + Math.max(1, Math.ceil(MP.respawnT)) + 's'; rs.classList.remove('hidden'); } else rs.classList.add('hidden');
 }
 
 /* ---------- Telas (lobby) ---------- */
@@ -649,16 +669,18 @@ function renderMp() {
   if (MP.state === 'lobby') {
     const url = location.origin && location.origin !== 'null' ? location.origin + location.pathname + '?sala=' + MP.code : '';
     h += `<div class="mpcode"><small>CÓDIGO DA SALA</small><b>${mpEsc(MP.code)}</b>${url ? `<button class="ghost sm" data-mp="copy" data-url="${mpEsc(url)}">copiar link</button>` : ''}</div>`;
-    h += `<div class="mplist">` + [...MP.players.values()].map(p => `<div class="mprow"><i style="background:${mpTdm() ? MP_TEAMS[p.team & 1].color : '#8fdcff'}"></i><span>${mpEsc(p.name)}${p.id === 0 ? ' <em>anfitrião</em>' : ''}${p.id === MP.myId ? ' <em>você</em>' : ''}${p.bot ? ' <em>bot</em>' : ''}</span>${mpTdm() ? `<small>${MP_TEAMS[p.team & 1].name}</small>` : ''}${MP.isHost && mpTdm() ? `<button class="ghost sm" data-mp="team" data-id="${p.id}">trocar equipe</button>` : ''}</div>`).join('') + `</div>`;
+    h += `<div class="mplist">` + [...MP.players.values()].map(p => `<div class="mprow"><i style="background:${mpTdm() ? MP_TEAMS[p.team & 1].color : '#8fdcff'}"></i><span>${mpEsc(p.name)}${p.id === 0 ? ' <em>anfitrião</em>' : ''}${p.id === MP.myId ? ' <em>você</em>' : ''}${p.bot ? ' <em>bot</em>' : ''}</span>${mpTdm() ? `<small>${mpRounds() ? (p.team ? 'TIME 2 · ataca primeiro' : 'TIME 1 · defende primeiro') : MP_TEAMS[p.team & 1].name}</small>` : ''}${MP.isHost && mpTdm() ? `<button class="ghost sm" data-mp="team" data-id="${p.id}">trocar equipe</button>` : ''}</div>`).join('') + `</div>`;
     const dis = MP.isHost ? '' : ' disabled';
     h += `<div class="copts">
-      <label>Modo<select id="mpGm"${dis}><option value="dm"${MP.cfg.gm === 'dm' ? ' selected' : ''}>☠ Todos contra todos</option><option value="tdm"${MP.cfg.gm === 'tdm' ? ' selected' : ''}>⚔ Equipes (Azul × Vermelho)</option></select></label>
-      <label>Meta de abates<select id="mpKl"${dis}>${[5, 10, 15, 25, 40].map(v => `<option value="${v}"${MP.cfg.kl === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Modo<select id="mpGm"${dis}><option value="dm"${MP.cfg.gm === 'dm' ? ' selected' : ''}>☠ Todos contra todos</option><option value="tdm"${MP.cfg.gm === 'tdm' ? ' selected' : ''}>⚔ Equipes (Azul × Vermelho)</option><option value="bomb"${MP.cfg.gm === 'bomb' ? ' selected' : ''}>💣 Ataque × Defesa — Bomba</option><option value="zone"${MP.cfg.gm === 'zone' ? ' selected' : ''}>🚩 Ataque × Defesa — Capturar zona</option></select></label>
+      <label>Rounds (Ataque × Defesa)<select id="mpRounds"${dis}>${[2, 4, 6, 8, 10].map(v => `<option value="${v}"${MP.cfg.rounds === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Meta de abates (outros modos)<select id="mpKl"${dis}>${[5, 10, 15, 25, 40].map(v => `<option value="${v}"${MP.cfg.kl === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Duração<select id="mpTl"${dis}>${[3, 5, 8, 12, 20].map(v => `<option value="${v}"${MP.cfg.tl === v ? ' selected' : ''}>${v} min</option>`).join('')}</select></label>
       <label>Bots (controlados pelo anfitrião)<select id="mpBots"${dis}>${[0, 1, 2, 3, 4, 5, 6, 7, 8].map(v => `<option value="${v}"${MP.cfg.bots === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Tipo de bots<select id="mpBt"${dis}>${Object.keys(MP_BOT_POOL).map(k => `<option value="${k}"${MP.cfg.bt === k ? ' selected' : ''}>${MP_BOT_LABEL[k]}</option>`).join('')}</select></label>
       <label>Horário<select id="mpNight"${dis}><option value="0"${!MP.cfg.night ? ' selected' : ''}>☀ Dia</option><option value="1"${MP.cfg.night ? ' selected' : ''}>🌙 Noite</option></select></label>
     </div>`;
+    if (mpRounds()) h += `<div class="asum"><b>${MP.cfg.gm === 'bomb' ? '💣 Bomba' : '🚩 Zona'}:</b> ${MP.cfg.gm === 'bomb' ? 'os atacantes plantam a bomba no ponto A ou B (segure E por 3,5 s) e os defensores a desarmam (segure E por 6 s). Não há renascimento dentro do round: quem cai assiste a um aliado.' : 'os atacantes capturam a zona ficando dentro dela sem defensores; os defensores a seguram até o tempo acabar. Todos renascem após 6 s.'} As equipes trocam de lado na metade dos rounds. Defesa = azul · Ataque = vermelho.</div>`;
     h += `<div class="asum">Equipamento: <b>${SAVE.custom.weapons.filter(Boolean).map(id => WMAP[id].name).join(' · ')}</b>. Você nasce com proteção por ${MP_PROT}s e renasce ${MP_RESPAWN}s depois de cair. ${MP.isHost ? 'Quando todos entrarem, inicie a partida.' : 'Aguardando o anfitrião iniciar…'}</div>`;
     if (MP.status) h += `<div class="mpstatus">${mpEsc(MP.status)}</div>`;
     h += `<div class="row"><button class="ghost" data-mp="equip">⚙ EQUIPAMENTO</button>${MP.isHost ? `<button class="big" data-mp="start">INICIAR PARTIDA</button>` : ''}<button class="ghost" data-mp="leave">SAIR DA SALA</button></div>`;
@@ -677,7 +699,7 @@ function renderMp() {
   if (keep) { const el = $(keep); if (el && el.focus) { el.focus(); try { const v = el.value; el.value = ''; el.value = v; } catch (_) { /* ignora */ } } }
 }
 function mpCfgChanged() {
-  MP.cfg.gm = $('mpGm').value === 'tdm' ? 'tdm' : 'dm'; MP.cfg.kl = +$('mpKl').value; MP.cfg.tl = +$('mpTl').value; MP.cfg.night = $('mpNight').value === '1';
+  MP.cfg.gm = MP_GAMEMODES.includes($('mpGm').value) ? $('mpGm').value : 'dm'; MP.cfg.rounds = +$('mpRounds').value; MP.cfg.kl = +$('mpKl').value; MP.cfg.tl = +$('mpTl').value; MP.cfg.night = $('mpNight').value === '1';
   MP.cfg.bots = +$('mpBots').value; MP.cfg.bt = $('mpBt').value;
   mpSyncBots();
   mpBroadcastLobby();
@@ -688,7 +710,7 @@ function mpCfgChanged() {
     if (e.target.id === 'mpName') { MP.name = mpSanName(e.target.value); try { SAVE.settings.name = MP.name; writeSave(); } catch (_) { /* ignora */ } }
     else if (e.target.id === 'mpCode') MP.joinCode = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
-  root.addEventListener('change', e => { if (MP.isHost && /^mp(Gm|Kl|Tl|Night|Bots|Bt)$/.test(e.target.id)) mpCfgChanged(); });
+  root.addEventListener('change', e => { if (MP.isHost && /^mp(Gm|Kl|Tl|Night|Bots|Bt|Rounds)$/.test(e.target.id)) mpCfgChanged(); });
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-mp]'); if (!b) return;
     initAudio();

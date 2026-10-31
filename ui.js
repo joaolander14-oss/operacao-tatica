@@ -91,15 +91,19 @@ function updateHUD() {
     const txt = w.melee ? '—' : (G.infAmmo ? '∞' : sl.mag) + ' / ' + (w.inf || G.infAmmo ? '∞' : (p.pool[w.cal] || 0)) + (w.fam ? ' · ' + CALIBERS[w.cal].tag : '');
     if (s.txt !== txt) { s.txt = txt; s.ammo.textContent = txt; }
     s.el.classList.toggle('active', i === p.wi);
+    s.el.classList.toggle('equipping', i === p.wi && p.equipT > 0);
     s.el.classList.toggle('empty', !w.melee && sl.mag === 0 && !w.inf && !(p.pool[w.cal] > 0));
   });
 
   const tsel = TMAP[p.thrSel];
-  setText('cGren', thrCount(p, p.thrSel)); setText('cMed', p.cons.med); setText('cRep', p.cons.repair);
+  setText('cGren', thrCount(p, p.thrSel)); setText('cMed', healCount(p, p.healSel)); setText('cRep', p.cons.repair);
   if (hudCache.thrIcon !== tsel.icon) { hudCache.thrIcon = tsel.icon; $('btnGren').firstElementChild.textContent = tsel.icon; $('btnGren').title = tsel.name + ' (G)'; }
   $('btnGren').classList.toggle('off', thrCount(p, p.thrSel) <= 0);
   const csl = curSlot(); $('btnAmmo').classList.toggle('hidden', !(csl && csl.w.fam));
-  $('btnMed').classList.toggle('off', p.cons.med <= 0 || !PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98));
+  const hsel = HMAP[p.healSel];
+  if (hudCache.hIcon !== hsel.id) { hudCache.hIcon = hsel.id; $('btnMed').firstElementChild.textContent = hsel.icon; $('btnMed').title = hsel.name + ' · ' + hsel.time + 's (H usa, X troca)'; }
+  $('btnMed').classList.toggle('off', healCount(p, p.healSel) <= 0 || !healNeed(p, p.healSel));
+  $('btnMed').classList.toggle('hold', !!p.healing);
   $('btnRep').classList.toggle('off', p.cons.repair <= 0);
   const hasSquad = allies.some(a => a.kind === 'partner' && !a.dead);
   $('btnCmd').classList.toggle('hidden', !hasSquad);
@@ -111,7 +115,7 @@ function updateHUD() {
   for (const a of allies) if (a._bar) { a._bar.style.width = (a.dead ? 0 : clamp(a.hp / a.maxHp * 100, 0, 100)) + '%'; a._el.classList.toggle('dead', a.dead); }
 
   const near = G.near, pr = $('prompt');
-  const ptxt = near ? (near.type === 'hostage' ? 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': libertar refém' : 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': plantar carga') : '';
+  const ptxt = near ? (near.type === 'hostage' ? 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': libertar refém' : near.type === 'plant' ? 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': plantar a bomba' : near.type === 'defuse' ? 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': desarmar a bomba' : 'Segure ' + (touchMode ? 'AÇÃO' : '[E]') + ': plantar carga') : '';
   if (hudCache.prompt !== ptxt) { hudCache.prompt = ptxt; pr.textContent = ptxt; pr.classList.toggle('hidden', !ptxt); }
   $('btnAct').classList.toggle('hidden', !(near && touchMode));
 
@@ -324,7 +328,7 @@ function renderArsenal() {
     html += '</table>';
     if (!base) {
       const c = player.cons;
-      html += `<div class="aslots cons2"><button class="ghost" data-act="use" data-u="med">✚ Kit Médico (${c.med}) [H]</button><button class="ghost" data-act="use" data-u="gren">💣 Granada (${c.grenade}) [G]</button><button class="ghost" data-act="use" data-u="rep">🛡 Reparo de Colete (${c.repair}) [V]</button></div>`;
+      html += `<div class="aslots cons2">${HEALS.map(h => `<button class="ghost" data-act="use" data-u="h:${h.id}" title="${h.desc}">${h.icon} ${h.name} (${healCount(player, h.id)}) · ${h.time}s${player.healSel === h.id ? ' ✔' : ''}</button>`).join('')}<button class="ghost" data-act="use" data-u="gren">💣 Granada (${c.grenade}) [G]</button><button class="ghost" data-act="use" data-u="rep">🛡 Reparo de Colete (${c.repair}) [V]</button></div>`;
     } else html += `<div class="asum">Cada operação começa com 4 carregadores por arma, kits médicos e granadas conforme a mochila.</div>`;
   }
   html += `</div><div class="afoot"><button id="btnArsClose" class="big">${base ? 'CONCLUIR' : 'VOLTAR À MISSÃO'}</button></div>`;
@@ -394,7 +398,9 @@ $('arsBody').addEventListener('click', e => {
     else flash('Esquadrão cheio (' + MAX_SQUAD + ').');
     applyLoadoutChange();
   } else if (act === 'use') {
-    if (el.dataset.u === 'med') useMed(); else if (el.dataset.u === 'gren') flash('Jogue granadas durante a missão (tecla G).'); else useRepair();
+    const uu = el.dataset.u;
+    if (uu.startsWith('h:')) { player.healSel = uu.slice(2); flash(HMAP[uu.slice(2)].name + ' selecionado — use com H durante a missão.'); }
+    else if (uu === 'med') useMed(); else if (el.dataset.u === 'gren') flash('Jogue granadas durante a missão (tecla G).'); else useRepair();
     renderArsenal();
   }
 });
@@ -469,6 +475,7 @@ hit('btnGren', throwGrenade);
 hit('btnThr', cycleThrowable);
 hit('btnAmmo', cycleAmmoType);
 hit('btnMed', useMed);
+hit('btnHeal', cycleHeal);
 hit('btnRep', useRepair);
 hit('btnCmd', toggleHold);
 hit('btnVis', toggleVision);

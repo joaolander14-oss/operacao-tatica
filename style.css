@@ -363,3 +363,8 @@ body.touch #cons button{width:40px;height:40px}
 .sbtab tr.me td{background:rgba(255,176,32,.1)}
 #endStats:has(.sbtab){display:block}
 @media (max-width:700px){#mpBoard{top:calc(40px + var(--safe-t));font-size:11px;min-width:120px}#mpFeed{top:calc(112px + var(--safe-t))}.mpcode b{font-size:26px}}
+
+/* ===== V8: equipar arma / cura ===== */
+.slot.equipping{opacity:.65;animation:eqp .5s ease-in-out infinite alternate}
+@keyframes eqp{from{filter:brightness(1)}to{filter:brightness(1.6)}}
+#btnMed.hold{background:rgba(111,224,122,.35)}

@@ -323,7 +323,10 @@ const WEAPONS = [
   W({ id: 'katana', slot: 'melee', grp: 'Corpo a corpo', name: 'Katana', melee: true, dmg: 64, range: 48, arc: 1.9, delay: .42, swing: .22, back: 5, sweep: true, len: 36, noise: 50, speedMod: 1.03, price: 1800, shape: 'katana', att: false, desc: 'Longa, rápida e letal.' }),
   W({ id: 'sledge', slot: 'melee', grp: 'Corpo a corpo', name: 'Marreta', melee: true, dmg: 130, range: 44, arc: 1.5, delay: 1.1, swing: .4, back: 3, breaks: true, knock: 320, stun: 1.6, len: 34, noise: 120, speedMod: .9, price: 1200, shape: 'sledge', att: false, desc: 'Devastadora e lenta.' }),
 ];
+// tempo para sacar/equipar a arma ao trocar (s)
+const EQUIP = { 'Pistolas': .35, 'Pistolas automáticas': .4, 'Revólveres': .45, 'Submetralhadoras': .5, 'Fuzis de assalto': .65, 'Fuzis de batalha': .8, 'Atiradores designados': .85, 'Metralhadoras': 1.2, 'Escopetas': .7, 'Snipers': 1.1, 'Rifles de alavanca': .6, 'Lançadores': 1.2, 'Armas pesadas': 1.8, 'Corpo a corpo': .25 };
 WEAPONS.forEach(w => {
+  w.eq = EQUIP[w.grp] || .6;
   if (!w.melee) {
     w.dmg = Math.round(CALIBERS[w.cal].dmg * w.dm);
     if (w.fam) { w.sp0 = w.spread; w.pellets = Math.max(1, Math.round(CALIBERS[w.cal].pel * (w.pm || 1))); w.spread = w.sp0 * CALIBERS[w.cal].sf; }
@@ -451,6 +454,16 @@ ETYPES.rocketeer = { label: 'Antitanque', hp: 100, speed: 80, r: 13, dmg: 85, pe
 ETYPES.commando = { label: 'Comando', hp: 120, speed: 118, r: 12, dmg: 14, pen: 3.2, burst: 4, bdelay: .1, pmin: .8, pmax: 1.3, spread: .05, range: 700, vision: 640, pref: 300, bspeed: 700, color: '#2a2a30', vest: '#16161a', helmet: '#1c1c22', stripe: '#8fdcff', weapon: 'scar', scale: 1.05, credit: 80, armor: .3, helm: .3, cls: 3, drop: 'elite' };
 const EXTRA_TYPES = ['sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando'];
 const ALL_TYPES = [['soldier', 'Soldado'], ['scout', 'Batedor'], ['heavy', 'Pesado'], ['rusher', 'Invasor (corpo a corpo)'], ['sniper', 'Sniper (atira através de paredes de casa)'], ['shotgunner', 'Escopeteiro'], ['grenadier', 'Granadeiro'], ['medic', 'Médico'], ['rocketeer', 'Antitanque (foguete)'], ['commando', 'Comando']];
+/* ---------- Itens de cura (cada um com seu tempo de uso) ---------- */
+const HEALS = [
+  { id: 'bandage',    name: 'Bandagem',       icon: '🩹', time: 2.2, cap: 6, desc: 'Rápida: estanca sangramentos e cura um pouco de tudo.' },
+  { id: 'painkiller', name: 'Analgésico',     icon: '💊', time: 2.8, cap: 4, desc: 'Regeneração lenta de todas as partes por 10 s.' },
+  { id: 'adrenaline', name: 'Adrenalina',     icon: '💉', time: 1.4, cap: 3, desc: 'Quase instantânea: +25% de velocidade por 12 s e cura leve.' },
+  { id: 'splint',     name: 'Tala',           icon: '🦴', time: 4,   cap: 3, desc: 'Recupera braços e pernas destruídos (50%).' },
+  { id: 'medkit',     name: 'Kit Médico',     icon: '✚',  time: 5.5, cap: 4, desc: 'Cura 50% de todas as partes.' },
+  { id: 'surgery',    name: 'Kit Cirúrgico',  icon: '🧰', time: 9,   cap: 2, desc: 'Demorado: cura tudo por completo, até membros destruídos.' },
+];
+const HMAP = Object.fromEntries(HEALS.map(h => [h.id, h]));
 const PLAYER_LOOK = { body: '#3f6f98', vest: '#26425a', helmet: '#2d4e6e', stripe: '#8fdcff' };
 
 /* ---------- Modos de jogo ---------- */
