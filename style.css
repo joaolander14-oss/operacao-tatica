@@ -370,3 +370,5 @@ body.touch #cons button{width:40px;height:40px}
 #btnMed.hold{background:rgba(111,224,122,.35)}
 
 #loadTag{font-size:11px;color:#cfd8c8;margin-top:2px;opacity:.9}
+
+.menuCtl{max-width:340px;margin:10px auto 0}

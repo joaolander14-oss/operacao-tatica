@@ -500,7 +500,13 @@ $('btnQuit').addEventListener('click', () => { releaseSticks(); if (MP.peer) mpL
 
 /* ---------- Sombra ajustável ---------- */
 const shR = $('shadowRange');
-function syncShadowUI() { shR.value = SAVE.settings.shadow; $('shadowVal').textContent = SAVE.settings.shadow + '%'; }
+function syncShadowUI() {
+  shR.value = SAVE.settings.shadow; $('shadowVal').textContent = SAVE.settings.shadow + '%';
+  const gv = Math.round(gunVolume() * 100);
+  $('gunRange').value = gv; $('gunVal').textContent = gv + '%'; $('gunRange2').value = gv; $('gunVal2').textContent = gv + '%';
+}
+const setGunVol = v => { SAVE.settings.gunVol = +v; applyGunVolume(); syncShadowUI(); writeSave(); };
+['gunRange', 'gunRange2'].forEach(id => $(id).addEventListener('input', e => { setGunVol(e.target.value); if (AC && !muted) gunshot(WMAP.ak47, 1); }));
 shR.addEventListener('input', () => { SAVE.settings.shadow = +shR.value; $('shadowVal').textContent = shR.value + '%'; writeSave(); });
 syncShadowUI();
 $('pauseScreen').addEventListener('transitionend', syncShadowUI);

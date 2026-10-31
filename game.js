@@ -34,20 +34,20 @@ const sticks = {
 /* =====================================================================
    ÁUDIO (sintetizado)
    ===================================================================== */
-let AC = null, master = null, noiseBuf = null, muted = false, OUT = null, gunBus = null, revSend = null;
+let AC = null, master = null, noiseBuf = null, muted = false, OUT = null, gunBus = null, revSend = null, gunOut = null;
 function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
     master = AC.createGain(); master.gain.value = .75;
-    const lim = AC.createDynamicsCompressor(); lim.threshold.value = -9; lim.knee.value = 6; lim.ratio.value = 7; lim.attack.value = .002; lim.release.value = .14;
+    const lim = AC.createDynamicsCompressor(); lim.threshold.value = -6; lim.knee.value = 5; lim.ratio.value = 8; lim.attack.value = .002; lim.release.value = .14;
     master.connect(lim); lim.connect(AC.destination);
     // barramento dos tiros: saturação (soco/estalo "estourado" de bodycam) + reverberação por convolução (eco de rua/prédio)
     gunBus = AC.createGain(); gunBus.gain.value = 2.1;
     const sh = AC.createWaveShaper(), cv = new Float32Array(2048);
     for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * 3.4) * .95; }
     sh.curve = cv; sh.oversample = '2x';
-    const gunOut = AC.createGain(); gunOut.gain.value = 2.1; gunOut.connect(lim);
+    gunOut = AC.createGain(); gunOut.gain.value = 3.6 * gunVolume(); gunOut.connect(lim);
     gunBus.connect(sh); sh.connect(gunOut);
     const len = Math.floor(AC.sampleRate * 2.2), ir = AC.createBuffer(2, len, AC.sampleRate);
     for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / AC.sampleRate; lp += ((Math.random() * 2 - 1) - lp) * (.55 - .4 * Math.min(1, t / 1.2)); d[i] = lp * Math.exp(-t * 2.6) * (1 + (i < 900 ? 1.5 : 0)); } }
@@ -68,6 +68,9 @@ function noiseHit(dur, f0, f1, vol, delay = 0) {
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(OUT || master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
 }
+// volume dos tiros (opção do jogador, 0..100%)
+const gunVolume = () => clamp(((SAVE.settings && SAVE.settings.gunVol != null) ? SAVE.settings.gunVol : 100) / 100, 0, 1);
+function applyGunVolume() { if (gunOut) gunOut.gain.value = 3.6 * gunVolume(); }
 function noiseHP(dur, f, vol, delay = 0) {
   if (!AC || muted) return;
   const t = AC.currentTime + delay;
@@ -145,7 +148,7 @@ function gunshot2(w, v = 1) {
   OUT = gunBus;
   if (sup) {
     // silenciado: sem estampido grave; fica agudo e fino ("pfft"/"thwip"), com a ação da arma em destaque
-    const V = v * 1.5, sub = SUBSONIC.has(w.cal);
+    const V = v * 1.9, sub = SUBSONIC.has(w.cal);
     revSend && (revSend.gain.value = indoor ? .45 : .18);
     noiseHP(.045 + .03 * en, 3000 * Math.sqrt(pf), (sub ? .6 : .85) * V * en);                  // sopro agudo
     noiseHit(.035, 10000, 3500, .4 * V * en);                                                    // chiado
@@ -156,7 +159,7 @@ function gunshot2(w, v = 1) {
     OUT = null; return;
   }
   const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .92 : 1) * (lb ? .95 : 1);
-  const V = v * loud * 1.9;
+  const V = v * loud * 2.4;
   revSend && (revSend.gain.value = indoor ? .85 : (en > .62 ? .5 : .38));
   // estalo seco (onda de choque), sopro do disparo e estampido — tudo escalado pelo calibre
   noiseHP(.016 + .022 * en, (brk ? 2600 : 1900) * Math.pow(pf, .6), .95 * V * near);
