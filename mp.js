@@ -14,11 +14,7 @@ const MP_TEAMS = [
 ];
 const MP_STATE_HP = [1, .7, .42, .15, 0];
 const MP_BOT_NAMES = ['Alfa', 'Bravo', 'Charlie', 'Delta', 'Eco', 'Foxtrot', 'Golf', 'Hotel'];
-const MP_BOT_POOL = {
-  mix: ['soldier', 'soldier', 'scout', 'heavy', 'sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando', 'rusher'],
-  basic: ['soldier', 'scout', 'soldier', 'rusher'], elite: ['commando', 'sniper', 'rocketeer', 'heavy', 'grenadier'],
-  sniper: ['sniper'], shotgun: ['shotgunner', 'rusher'],
-};
+const MP_BOT_POOL = { mix: { power: .5 }, basic: { power: .15, cats: ['pist', 'smg', 'ar'] }, elite: { power: 1, cats: ['ar', 'br', 'mg', 'la'] }, sniper: { power: .7, cats: ['sn'] }, shotgun: { power: .5, cats: ['sg', 'ml'] } };
 const MP_BOT_LABEL = { mix: 'Variados', basic: 'Básicos', elite: 'Elite', sniper: 'Só snipers', shotgun: 'Escopeteiros e invasores' };
 const MP_BOT_MAX = 8, MP_TOTAL_MAX = 12;
 const mpLmax = () => Math.max(-1, layerBld.length - 1);
@@ -154,14 +150,14 @@ function mpSyncBots() {
   const n = clamp(Math.min(MP.cfg.bots, MP_TOTAL_MAX - humans.length), 0, MP_BOT_MAX), pool = MP_BOT_POOL[MP.cfg.bt] || MP_BOT_POOL.mix;
   let t0 = humans.filter(p => p.team === 0).length, t1 = humans.length - t0;
   for (let k = 0; k < n; k++) {
-    const ty = pool[(Math.random() * pool.length) | 0], id = 100 + k, team = t0 <= t1 ? 0 : 1;
+    const id = 100 + k, team = t0 <= t1 ? 0 : 1, foe = rollFoe(pool.power + Math.random() * .2 - .1, pool.cats);
     if (team === 0) t0++; else t1++;
-    MP.players.set(id, { id, name: ETYPES[ty].label + ' ' + MP_BOT_NAMES[k], team, kills: 0, deaths: 0, load: mpCleanLoad(null), bot: true, ty });
+    MP.players.set(id, { id, name: 'Bot ' + MP_BOT_NAMES[k], team, kills: 0, deaths: 0, load: mpCleanLoad(foe), foe, bot: true });
   }
   MP.cfg.bots = n;
 }
 function mpBroadcastLobby() {
-  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot ? 1 : 0, ty: p.ty })), cfg: MP.cfg, code: MP.code });
+  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot ? 1 : 0, load: p.bot ? p.load : undefined })), cfg: MP.cfg, code: MP.code });
   renderMp();
 }
 function mpJoin(code) {
@@ -200,8 +196,8 @@ function mpApplyLobby(m) {
   const next = new Map();
   for (const q of m.players.slice(0, MP_MAX)) {
     const id = q.id | 0, old = MP.players.get(id);
-    const bot = !!q.bot && id >= 100, ty = ETYPES[q.ty] && q.ty !== 'boss' ? q.ty : 'soldier';
-    next.set(id, { id, name: mpSanName(q.name, bot ? 24 : 14), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: old ? old.load : mpCleanLoad(null), bot, ty: bot ? ty : undefined });
+    const bot = !!q.bot && id >= 100;
+    next.set(id, { id, name: mpSanName(q.name, bot ? 24 : 14), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: bot ? mpCleanLoad(q.load) : (old ? old.load : mpCleanLoad(null)), foe: old && old.foe, bot });
   }
   MP.players = next;
   if (m.cfg && typeof m.cfg === 'object') {
@@ -263,7 +259,7 @@ function mpSendState() {
 // tiros: cada projétil vira um "fantasma" visual/destruidor nos outros clientes
 function mpSendShots(list, bot) {
   if (!list.length) return;
-  mpSend({ t: 'sh', o: bot, b: list.map(b => ({ x: mpR(b.x), y: mpR(b.y), dx: +b.dx.toFixed(3), dy: +b.dy.toFixed(3), s: Math.round(b.speed), d: Math.round(b.dmg), r: Math.round(b.range), L: b.L, pw: +b.pw.toFixed(2), id: b.id, ro: b.rocket ? 1 : 0, rad: b.radius || 0, br: b.breaks ? 1 : 0, sp: b.sup ? 1 : 0, fl: b.flame ? 1 : 0, i: b.inc ? 1 : 0, fr: b.fragR || 0, c: b.col })) });
+  mpSend({ t: 'sh', o: bot, b: list.map(b => ({ x: mpR(b.x), y: mpR(b.y), dx: +b.dx.toFixed(3), dy: +b.dy.toFixed(3), s: Math.round(b.speed), d: Math.round(b.dmg), r: Math.round(b.range), L: b.L, pw: +b.pw.toFixed(2), id: b.id, mz: b.mz || undefined, ro: b.rocket ? 1 : 0, rad: b.radius || 0, br: b.breaks ? 1 : 0, sp: b.sup ? 1 : 0, fl: b.flame ? 1 : 0, i: b.inc ? 1 : 0, fr: b.fragR || 0, c: b.col })) });
 }
 function mpOnShots(m, pl) {
   if (!Array.isArray(m.b)) return;
@@ -275,7 +271,7 @@ function mpOnShots(m, pl) {
     const w = WMAP[q.id]; if (!w) continue;
     const b = {
       x: mpNum(q.x), y: mpNum(q.y), dx: clamp(mpNum(q.dx), -1, 1), dy: clamp(mpNum(q.dy), -1, 1), speed: clamp(mpNum(q.s, 1000), 100, 4000), dmg: clamp(mpNum(q.d, 10), 0, 250),
-      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: own, friend, L: clamp(mpNum(q.L, -1) | 0, -1, mpLmax()), id: q.id, pw: clamp(mpNum(q.pw), 0, 20),
+      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: own, friend, L: clamp(mpNum(q.L, -1) | 0, -1, mpLmax()), id: q.id, mz: AMAP[q.mz] ? q.mz : null, pw: clamp(mpNum(q.pw), 0, 20),
       rocket: !!q.ro, radius: clamp(mpNum(q.rad), 0, 200), breaks: !!q.br, sup: !!q.sp, flame: !!q.fl, inc: !!q.i, stunS: 0, fragR: clamp(mpNum(q.fr), 0, 200), tx: -1, ty: -1, col: typeof q.c === 'string' ? q.c.slice(0, 16) : '#ff7a50', hit: null,
     };
     if (b.rocket && (!w.rocket)) b.rocket = false;
@@ -285,7 +281,7 @@ function mpOnShots(m, pl) {
     const w = WMAP[first.id], d = Math.hypot(first.x - player.x, first.y - player.y);
     r.fl = .06; r.rec = 1;
     if (MP.isHost && enemies.length) makeNoise(first.x, first.y, w.noise);
-    if (d < 1400) sfx(w.snd || 'rifle', clamp(1.15 - d / 1100, .08, 1) * (w.sup ? .25 : 1));
+    if (d < 1400) { if (w.rocket) sfx('rpg', clamp(1.15 - d / 1100, .08, 1)); else gunshot(Object.assign({}, w, { muzzle: first.mz, sup: w.sup || first.sup }), clamp(1.15 - d / 1100, .08, 1)); }
   }
 }
 
@@ -452,7 +448,7 @@ function mpBotDied(e) {
 function mpSpawnBot(p, spot) {
   const pool = mpRounds() ? MP.pools[mpSide(p.id)] : null;
   const s = spot || (pool && pool.length ? pool[(Math.random() * pool.length) | 0] : mpFarSpot(mpHumans()));
-  const e = makeEnemy(p.ty, s.x * T + T / 2, s.y * T + T / 2, s.L != null ? s.L : -1);
+  const e = makeEnemy(p.foe || 'soldier', s.x * T + T / 2, s.y * T + T / 2, s.L != null ? s.L : -1);
   e.mpId = p.id; e.team = p.team; e.name = p.name; e.site = (Math.random() * 2) | 0;
   enemies.push(e);
 }
@@ -607,7 +603,7 @@ function mpDraw(c, p, pts) {
     r.vis = canView(p.L, r.L, r.x, r.y) && seesEnemy(p, r, d, pts);
     if (!r.vis) { r.seenT = Math.max(0, (r.seenT || 0) - G.dt); if (r.seenT > 0 && canView(p.L, r.L, r.x, r.y) && d < VIS) r.vis = true; } else r.seenT = .22;
     if (!r.vis) continue;
-    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = pl && pl.bot ? ETYPES[pl.ty] : null, look = bt ? { body: bt.color, vest: bt.vest, helmet: bt.helmet, stripe: mpTdm() ? MP_TEAMS[mpSide(pl.id)].color : bt.stripe } : mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
+    const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = null, look = mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
     drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
     if (r.hl) { c.fillStyle = '#6fe07a'; c.font = 'bold 14px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('✚', r.x + 16, r.y - 14); c.fillText('✚', r.x + 16, r.y - 14); }
     if (r.pr) { c.strokeStyle = 'rgba(143,220,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(r.x, r.y, 17, 0, PI2); c.stroke(); c.setLineDash([]); }

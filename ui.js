@@ -427,7 +427,7 @@ function renderCustom() {
     <label>Nível de dificuldade: <b id="oLvV">${o.level}</b><input type="range" id="oLv" min="1" max="10" value="${o.level}"></label>
     <label>Vida dos inimigos<select id="oHp">${[.5, 1, 2, 3].map(v => `<option value="${v}"${o.hpMul === v ? ' selected' : ''}>×${v}</option>`).join('')}</select></label>
     <label>Intensidade da sombra: <b id="oShV">${o.shadow}%</b><input type="range" id="oSh" min="0" max="100" value="${o.shadow}"></label>
-    <fieldset class="full"><legend>Tipos de inimigos</legend>${types.map(t => `<label class="chk"><input type="checkbox" data-type="${t[0]}"${o.types.includes(t[0]) ? ' checked' : ''}> ${t[1]}</label>`).join('')}
+    <fieldset class="full"><legend>Armas dos inimigos (sorteadas, com equipamento aleatório)</legend>${types.map(t => `<label class="chk"><input type="checkbox" data-type="${t[0]}"${o.types.includes(t[0]) ? ' checked' : ''}> ${t[1]}</label>`).join('')}
       <label class="chk"><input type="checkbox" id="oInf"${o.infAmmo ? ' checked' : ''}> Munição infinita</label></fieldset>
     <div class="full asum"><b>Equipamento:</b> ${ws} · Esquadrão: ${SAVE.custom.squad.length}/${MAX_SQUAD}. Todas as armas, acessórios, coletes, parceiros e itens estão liberados.</div>
   </div>
@@ -437,7 +437,7 @@ function renderCustom() {
     o.mode = q('oMode').value; o.time = q('oTime').value; o.enemies = +q('oEn').value; o.level = +q('oLv').value; o.hpMul = +q('oHp').value; o.shadow = +q('oSh').value;
     o.infAmmo = q('oInf').checked;
     o.types = [...document.querySelectorAll('[data-type]')].filter(c => c.checked).map(c => c.dataset.type);
-    if (!o.types.length) o.types = ['soldier'];
+    if (!o.types.length) o.types = ['ar'];
     SAVE.settings.shadow = o.shadow;
     q('oEnV').textContent = o.enemies; q('oLvV').textContent = o.level; q('oShV').textContent = o.shadow + '%';
     writeSave();

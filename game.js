@@ -98,6 +98,33 @@ const SFX = {
 };
 const sfx = (n, v) => { if (SFX[n]) SFX[n](v); };
 
+// Som de tiro sintetizado: estalo (crack) + estampido grave + cauda com eco. Muda com o calibre, o cano e o acessório de boca.
+function gunshot(w, v = 1) {
+  if (!AC || muted || !w) return;
+  const C = CALIBERS[w.cal], E = C ? C.dmg * (C.pel || 1) * .5 + (C.dmg || 10) * .5 : 20;
+  const cls = w.snd || 'rifle', mz = w.muzzle, len = w.len || 25;
+  const en = clamp(Math.log(E + 6) / Math.log(220), .22, 1.15);                     // "energia" do cartucho
+  const indoor = player && bldIdxAt(player.x, player.y) >= 0;
+  if (w.sup || mz === 'a_sup') {                                                      // silenciado: sopro abafado + clique mecânico
+    noiseHit(.06 + en * .05, 1500, 280, .14 * v * en);
+    tone(130 + (1 - en) * 80, 55, .05, .07 * v, 'sine');
+    noiseHit(.02, 5200, 2400, .05 * v, .025);
+    return;
+  }
+  const brk = mz === 'a_brake' || mz === 'a_comp', fh = mz === 'a_flash', lb = mz === 'a_long';
+  const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .9 : 1) * (lb ? .94 : 1);
+  const near = clamp(v * 1.4, .15, 1);                                                // longe: perde o estalo agudo
+  noiseHit(.022 + .028 * en, brk ? 8200 : 6500, 1400, .4 * v * loud * near);          // crack
+  noiseHit(.05 + .1 * en, 3600 * (1 - len / 230), 380, .42 * v * en * loud);          // corpo do disparo
+  tone((130 + (1 - en) * 140) * (lb ? .85 : 1), 36, .08 + .22 * en, .34 * v * en, 'sine');   // estampido
+  if (cls === 'shotgun') tone(85, 30, .3, .36 * v, 'sawtooth');
+  if (cls === 'pistol' || cls === 'smg') noiseHit(.05, 4200, 900, .1 * v, .018);      // estalo da armação
+  if (en > .62 || cls === 'sniper') { noiseHit(.5 + en * .5, 1500, 85, .17 * v * en, .05); noiseHit(.55, 950, 75, .09 * v * en, .17); }
+  else noiseHit(.16 + en * .2, 1600, 120, .11 * v * en, .04);
+  if (indoor) { noiseHit(.22, 1800, 200, .1 * v * en, .07); noiseHit(.3, 1100, 120, .07 * v * en, .15); }   // eco em ambiente fechado
+  if (cls === 'sniper') tone(60, 28, .45, .22 * v, 'sine', .02);
+}
+
 /* =====================================================================
    PARTÍCULAS, DECALQUES E EFEITOS
    ===================================================================== */
@@ -169,13 +196,17 @@ function explode(x, y, radius, dmg, L) {
   if (!player.dead && (!MP.on || mpHurtFrom(G.src))) blast(player, true);
 
   const tx0 = Math.floor((x - radius) / T), tx1 = Math.floor((x + radius) / T), ty0 = Math.floor((y - radius) / T), ty1 = Math.floor((y + radius) / T);
+  const walls = [];
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-    if (Math.hypot(tx * T + T / 2 - x, ty * T + T / 2 - y) > radius * .9) continue;
+    const wd = Math.hypot(tx * T + T / 2 - x, ty * T + T / 2 - y);
+    if (wd > radius * .9) continue;
     const k = kindF(tx, ty, L);
     if (k === K.CRATE) destroyCrate(tx, ty, L);
     else if (k === K.WINDOW) breakWindow(tx, ty, L);
     else if (k === K.DOOR || k === K.DOOROPEN) breakDoor(tx, ty, L);
+    else if (dmg >= 50 && WALL_HP[k] && castRay(x, y, Math.atan2(ty * T + T / 2 - y, tx * T + T / 2 - x), wd, L) >= wd - T * .8) walls.push([tx, ty, wd]);   // paredes expostas à explosão
   }
+  for (const [wx, wy, wd] of walls) damageWall(wx, wy, L, dmg * Math.max(.3, 1 - wd / (radius * 1.1)));
   makeNoise(x, y, 800);
 }
 
@@ -511,7 +542,7 @@ function fireShot(w, sl) {
     bullets.push({
       x: p.x + Math.cos(p.ang) * 10, y: p.y + Math.sin(p.ang) * 10, dx: Math.cos(a), dy: Math.sin(a),
       speed: w.speed * (w.pellets > 1 || w.flame ? rand(.85, 1.05) : 1), dmg: w.dmg, range: w.range * (w.flame ? rand(.8, 1.1) : 1), dist: 0, from: 'p', L: p.L,
-      id: w.id, pw: w.flame ? 99 : cal.pen + (w.ap || 0), rocket: !!w.rocket, radius: w.radius || 0, breaks: !!w.breaks, hit: null,
+      id: w.id, mz: w.muzzle, pw: w.flame ? 99 : cal.pen + (w.ap || 0), rocket: !!w.rocket, radius: w.radius || 0, breaks: !!w.breaks, hit: null,
       sup: !!w.sup, flame: !!w.flame, inc: !!w.inc, stunS: w.stunS || 0, fragR: w.fragR || 0, tx: -1, ty: -1, col: cal.color,
     });
   }
@@ -528,7 +559,8 @@ function fireShot(w, sl) {
   shake(w.kick * (p.walking ? .6 : 1));
 
   if (w.flame) { if (G.time - p.lastFlame > .12) { sfx('flame'); p.lastFlame = G.time; } }
-  else sfx(w.snd, w.sup ? .25 : 1);
+  else if (w.rocket) sfx('rpg');
+  else gunshot(w, 1);
   if (!w.rocket && !w.flame && w.shape !== 'revolver' && w.shape !== 'dupla') {
     const a = p.ang + Math.PI / 2 + rand(-.4, .4);
     spawnPart({ x: p.x + Math.cos(p.ang) * 8, y: p.y + Math.sin(p.ang) * 8, vx: Math.cos(a) * rand(60, 130), vy: Math.sin(a) * rand(60, 130), life: 1.4, size: 2, color: w.pellets > 1 ? '#d95a5a' : cal.color, cal: w.cal, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-12, 12), layer: 0, L: p.L });
@@ -1039,7 +1071,7 @@ function allyShoot(a, w) {
     });
   }
   a.flash = .06;
-  sfx(w.snd, clamp(1 - Math.hypot(a.x - player.x, a.y - player.y) / 900, .05, .8) * .7);
+  gunshot(w, clamp(1 - Math.hypot(a.x - player.x, a.y - player.y) / 900, .05, .8) * .7);
   makeNoise(a.x, a.y, w.noise * .7);
 }
 
@@ -1123,11 +1155,21 @@ function updateAlly(a, dt) {
 /* =====================================================================
    INIMIGOS
    ===================================================================== */
-function makeEnemy(key, x, y, L) {
-  const ty = ETYPES[key], mul = (1 + .07 * (G.level - 1)) * (G.hpMul || 1);
-  const maxHp = ty.hp * mul;
+function foeFromKey(key) {
+  if (key === 'boss') { const ld = rollFoe(1, ['ar', 'br', 'mg'], true); ld.boss = true; return ld; }
+  if (key === 'heavy') return rollFoe(.8, ['mg', 'sg', 'ar']);
+  if (key === 'rusher') return rollFoe(.2, ['ml']);
+  return rollFoe(.35, G.types);
+}
+// src = equipamento sorteado (rollFoe) ou, por compatibilidade, 'boss' / 'heavy' / 'rusher'
+function makeEnemy(src, x, y, L) {
+  const ld = typeof src === 'string' ? foeFromKey(src) : src;
+  const ty = foeTy(ld), mul = (1 + .07 * (G.level - 1)) * (G.hpMul || 1);
+  if (ld.boss) Object.assign(ty, { hp: 650, r: 16, scale: 1.4, credit: 500, armor: Math.max(ty.armor, .45), helm: Math.max(ty.helm, .4), cls: Math.max(ty.cls, 3.5), color: '#6b1f2a', vest: '#3a0f16', helmet: '#240a0f', stripe: '#ffd24a' });
+  const maxHp = ty.hp * mul, key = ld.boss ? 'boss' : 'foe';
   const e = {
-    key, ty, x, y, r: ty.r, ang: rand(0, PI2), L: L == null ? -1 : L, hp: maxHp, maxHp, parts: makeParts(maxHp), vip: key === 'boss',
+    key, ty, ld, eq: { head: ld.gear.head, body: ld.gear.body, legs: ld.gear.legs, back: ld.gear.back, eyes: ld.gear.eyes, att: ld.attach[ty.weapon] || null },
+    nadeN: ty.nades ? ty.nades.length + 1 : 0, x, y, r: ty.r, ang: rand(0, PI2), L: L == null ? -1 : L, hp: maxHp, maxHp, parts: makeParts(maxHp), vip: !!ld.boss,
     state: 'patrol', home: { x, y }, path: null, pi: 0, idle: rand(.3, 2.5), senseT: rand(0, .15),
     sees: false, tgt: null, react: 0, loseT: 0, lastKnown: null, burstLeft: 0, shotT: 0, pause: rand(.3, 1),
     strafeDir: Math.random() < .5 ? 1 : -1, strafeT: rand(1, 2), repathT: 0, walk: Math.random() * 6,
@@ -1283,7 +1325,7 @@ function updateEnemy(e, dt) {
         moveEntity(e, Math.cos(sa) * spd * .5 * dt, Math.sin(sa) * spd * .5 * dt);
         e.moving = true; e.walk += spd * .5 * dt * .12;
       }
-      if (ty.nades && !fx.armsDead) {
+      if (ty.nades && e.nadeN > 0 && !fx.armsDead) {
         e.gcd = (e.gcd == null ? rand(2, 5) : e.gcd) - dt;
         if (e.gcd <= 0 && e.react <= 0 && dist > 130 && dist < 470) { enemyThrow(e, tg); e.gcd = rand(ty.gcd[0], ty.gcd[1]); }
       }
@@ -1318,44 +1360,43 @@ function enemyShoot(e) {
     const b = {
       x: e.x + Math.cos(e.ang) * (e.r + 6), y: e.y + Math.sin(e.ang) * (e.r + 6), dx: Math.cos(a), dy: Math.sin(a),
       speed: ty.bspeed * PACE.bullet * (n > 1 ? rand(.9, 1.05) : 1), dmg: ty.dmg, range: ty.range + 150, dist: 0, from: 'e', L: e.L, pw: ty.pen, tx: -1, ty: -1, col: ty.rocket ? '#ffb050' : '#ff7a50',
-      id: ty.weapon, owner: e.mpId, rocket: !!ty.rocket, radius: ty.rocketR || 0,
+      id: ty.weapon, mz: ty.w && ty.w.muzzle, owner: e.mpId, rocket: !!ty.rocket, radius: ty.rocketR || 0,
     };
     bullets.push(b); made.push(b);
   }
   e.flash = .06;
   const vol = clamp(1 - Math.hypot(e.x - player.x, e.y - player.y) / 900, 0, 1);
-  sfx(ty.rocket ? 'rpg' : n > 1 ? 'shotgun' : 'enemyShot', vol);
+  if (ty.rocket) sfx('rpg', vol); else gunshot(ty.w, vol * .9);
   if (MP.on && MP.isHost && e.mpId != null) mpSendShots(made, e.mpId);
 }
 // granadeiro arremessa granadas variadas no alvo
 function enemyThrow(e, tg) {
-  const kind = e.ty.nades[(Math.random() * e.ty.nades.length) | 0];
+  const kind = e.ty.nades[(Math.random() * e.ty.nades.length) | 0]; e.nadeN--;
   const dist = clamp(Math.hypot(tg.x - e.x, tg.y - e.y), 90, 440), a = Math.atan2(tg.y - e.y, tg.x - e.x) + rand(-.08, .08), v = dist * 2.2;
   const gr = { x: e.x + Math.cos(a) * 14, y: e.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: TMAP[kind].fuse, kind, L: e.L, by: 'e', owner: e.mpId };
   grenades.push(gr); sfx('throw'); e.mark = 1; e.markType = '!';
   if (MP.on && MP.isHost && e.mpId != null) mpSendThrow(gr, false, e.mpId);
 }
 function dropLoot(e) {
-  const ty = e.ty, k = ty.drop, at = { x: e.x, y: e.y, t: Math.random() * 6, L: e.L };
-  const put = o => pickups.push(Object.assign(o, at));
-  if (k && Math.random() < .75) {
-    if (k === 'sniper') put({ type: 'ammo', items: [{ cal: '.308', n: 14 }, { cal: Math.random() < .5 ? '.338' : '6.5', n: 6 }] });
-    else if (k === 'shell') { const c = ['12ga-slug', '12ga-flech', '12ga-dragon', '12ga-rubber', '12ga'][(Math.random() * 5) | 0]; put({ type: 'ammo', items: [{ cal: c, n: CALIBERS[c].pack + 4 }] }); }
-    else if (k === 'grenade') put({ type: 'grenade', kind: rndThr() });
-    else if (k === 'med') put({ type: 'med' });
-    else if (k === 'rocket') put({ type: 'ammo', items: [{ cal: 'rocket', n: 2 }, { cal: '40mm', n: 4 }] });
-    else if (k === 'elite') { if (Math.random() < .5) put({ type: 'gear', item: randomGear(true) }); else put({ type: 'repair' }); }
-    return;
+  const ty = e.ty, ld = e.ld, w = ty.w;
+  const put = o => pickups.push(Object.assign(o, { x: e.x + rand(-12, 12), y: e.y + rand(-12, 12), t: Math.random() * 6, L: e.L }));
+  let any = false;
+  if (!w.melee && Math.random() < .6) {
+    const cal = w.fam ? SHELL_FAMILIES[w.fam][(Math.random() * SHELL_FAMILIES[w.fam].length) | 0] : w.cal;
+    put({ type: 'ammo', items: [{ cal, n: Math.max(2, Math.round(CALIBERS[cal].pack * rand(.7, 1.3))) }] }); any = true;
   }
-  dropPickup(e.x, e.y, false, e.key === 'heavy' && Math.random() < .25, e.L);
+  if (ld.nades && Math.random() < .65) { put({ type: 'grenade', kind: ld.nades[0] }); any = true; }
+  if (ld.heal && Math.random() < .7) { put({ type: 'med' }); any = true; }
+  if (Math.random() < .1 + .18 * ld.power) { const pr = [ld.weapons[0], ld.weapons[1], ld.gear.body, ld.gear.head].filter(x => x && (WMAP[x] ? WMAP[x].price > 0 : GMAP[x] && GMAP[x].price > 0)); if (pr.length) { put({ type: 'gear', item: pr[(Math.random() * pr.length) | 0] }); any = true; } }
+  if (!any) dropPickup(e.x, e.y, false, false, e.L);
 }
 
 function killEnemy(e, ang, part) {
   if (e.dead) return;
-  if (e.mpId != null && MP.on) { e.dead = true; addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, L: e.L }); addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L }); bloodBurst(e.x, e.y, ang, 14, e.L, true); sfx('kill'); mpBotDied(e); return; }
+  if (e.mpId != null && MP.on) { e.dead = true; addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L }); addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L }); bloodBurst(e.x, e.y, ang, 14, e.L, true); sfx('kill'); mpBotDied(e); return; }
   e.dead = true; G.kills++; G.earned += e.ty.credit; sfx('kill');
   if (part === 'head') G.heads++;
-  addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, L: e.L });
+  addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L });
   addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L });
   bloodBurst(e.x, e.y, ang, 14, e.L, true);
   if (e.vip) { dropPickup(e.x, e.y, true, true, e.L); banner('ALVO VIP ELIMINADO'); }
@@ -1553,7 +1594,7 @@ function startWave() {
       if (Math.hypot(px - player.x, py - player.y) > 520 && (player.L >= 0 || !hasLOS(px, py, player.x, player.y, -1))) { s = c; break; }
     }
     if (!s) s = SPOTS[(Math.random() * SPOTS.length) | 0];
-    const r = Math.random(), key = Math.random() < Math.min(.4, .04 * G.wave + .05) ? allowType(EXTRA_TYPES[(Math.random() * EXTRA_TYPES.length) | 0]) : allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier');
+    const key = rollFoe(clamp(.1 + .06 * G.wave + .08 * (G.level - 1) + rand(-.1, .2), 0, 1), G.types);
     const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, sL);
     enemies.push(e);
     goSearch(e, { x: player.x + rand(-80, 80), y: player.y + rand(-80, 80) }, player.L);
@@ -1660,8 +1701,7 @@ function startMission(mode, level, custom) {
     return s;
   };
   const hv = Math.min(.3, .06 + .04 * level), sc = .2, ru = Math.min(.18, .03 + .02 * level);
-  const ex = Math.min(.4, .05 + .05 * level);
-  const rollKey = () => { if (Math.random() < ex) return allowType(EXTRA_TYPES[(Math.random() * EXTRA_TYPES.length) | 0]); const r = Math.random(); return allowType(r < hv ? 'heavy' : r < hv + sc ? 'scout' : r < hv + sc + ru ? 'rusher' : 'soldier'); };
+  const rollKey = () => rollFoe(clamp(.08 + .1 * (level - 1) + rand(-.1, .25), 0, 1), G.types);
   const cnt = def => (custom && custom.enemies >= 0) ? custom.enemies : def;
   const addE = (key, s, L) => { const e = makeEnemy(key, s.x * T + T / 2, s.y * T + T / 2, L); enemies.push(e); return e; };
   const placed = [];
@@ -1704,7 +1744,7 @@ function startMission(mode, level, custom) {
         const q = poi(i, Math.random() < .55), h = makeHostage(q.s.x * T + T / 2, q.s.y * T + T / 2, i + 1, q.L);
         allies.push(h);
         interacts.push({ x: h.x, y: h.y, L: q.L, type: 'hostage', need: 2, prog: 0, done: false, ref: h });
-        addE('soldier', nearL(q.s, 3, q.L), q.L); addE(rollKey(), nearL(q.s, 3, q.L), q.L);
+        addE(rollKey(), nearL(q.s, 3, q.L), q.L); addE(rollKey(), nearL(q.s, 3, q.L), q.L);
       }
       break;
     }
@@ -1720,14 +1760,14 @@ function startMission(mode, level, custom) {
         if (BSPOTS.length && Math.random() < .5) { const q = poi(i * 3 + 1, true); if (q.L >= 0) { s = q.s; sL = q.L; } }
         used.push(s);
         interacts.push({ x: s.x * T + T / 2, y: s.y * T + T / 2, L: sL, type: 'charge', need: 3, prog: 0, done: false });
-        addE('soldier', nearL(s, 3, sL), sL); addE(rollKey(), nearL(s, 3, sL), sL);
+        addE(rollKey(), nearL(s, 3, sL), sL); addE(rollKey(), nearL(s, 3, sL), sL);
       }
       break;
     }
     case 'vip': {
       addRandom(cnt(Math.min(14, 5 + 2 * (level - 1))));
       const q = poi(0, Math.random() < .5), boss = addE('boss', q.s, q.L);
-      for (let i = 0; i < Math.min(8, 4 + level); i++) addE(i % 3 === 2 ? 'heavy' : 'soldier', nearL(q.s, 4, q.L), q.L);
+      for (let i = 0; i < Math.min(8, 4 + level); i++) addE(i % 3 === 2 ? 'heavy' : rollKey(), nearL(q.s, 4, q.L), q.L);
       boss.home = { x: boss.x, y: boss.y };
       break;
     }

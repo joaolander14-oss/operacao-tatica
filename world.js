@@ -9,7 +9,7 @@
 const MAXF = 4;                                   // andares máximos por prédio (0 = térreo)
 let grid0 = new Uint8Array(NT), grid1 = new Uint8Array(NT), ftype = new Uint8Array(NT), bldAt = new Int8Array(NT).fill(-1);
 let gridF = [grid0, grid1, new Uint8Array(NT), new Uint8Array(NT)];   // um grid por andar
-let layerBld = [], layerFloor = [], mapUFloor = 0;                    // camada L >= 0 = (prédio, andar)
+let layerBld = [], layerFloor = [], mapUFloor = 0, wallHp = new Map();                    // camada L >= 0 = (prédio, andar)
 let blds = [], doors = [], reachN = new Uint8Array(MAXF * NT), spawnT = { x: 4, y: MH - 5 }, extT = { x: MW - 5, y: 4 };
 
 const mapC = document.createElement('canvas'), mapX = mapC.getContext('2d');
@@ -495,7 +495,7 @@ function makeRoof(b, seed) {
 
 function loadWorld(m) {
   gridF = m.gf; grid0 = gridF[0]; grid1 = gridF[1]; ftype = m.f0; bldAt = m.bAt; blds = m.bl; doors = m.dl; reachN = m.rc; spawnT = m.sp; extT = m.ex;
-  layerBld = []; layerFloor = [];
+  layerBld = []; layerFloor = []; wallHp = new Map();
   blds.forEach(b => { b.layers = [-1]; });
   blds.forEach((b, bi) => { for (let f = 1; f < b.floors; f++) { b.layers[f] = layerBld.length; layerBld.push(bi); layerFloor.push(f); } });
   blds.forEach((b, i) => makeRoof(b, 1000 + i * 17));
@@ -520,6 +520,26 @@ function destroyCrate(tx, ty, L) {
   if (!MP.on && Math.random() < .5) dropPickup(tx * T + T / 2, ty * T + T / 2, true, false, L);
   for (let i = 0; i < 10; i++) spawnPart({ x: tx * T + T / 2, y: ty * T + T / 2, vx: rand(-160, 160), vy: rand(-160, 160), life: rand(.4, .9), size: rand(2, 4), color: '#a97f40', drag: 3, kind: 'dot' });
   sfx('crate');
+}
+// resistência das paredes a explosões (foguetes, granadas, cargas)
+const WALL_HP = { [K.PART]: 35, [K.WOODW]: 60, [K.BRICK]: 100, [K.WALL]: 170 };
+function damageWall(tx, ty, L, dmg) {
+  if (tx < 1 || ty < 1 || tx >= MW - 1 || ty >= MH - 1) return false;      // a borda do mapa é indestrutível
+  const k = kindF(tx, ty, L), max = WALL_HP[k];
+  if (!max) return false;
+  const key = floorOfL(L) * NT + ty * MW + tx, hp = (wallHp.has(key) ? wallHp.get(key) : max) - dmg, cx = tx * T + T / 2, cy = ty * T + T / 2;
+  if (hp > 0) {
+    wallHp.set(key, hp);
+    for (let i = 0; i < 6; i++) spawnPart({ x: cx + rand(-14, 14), y: cy + rand(-14, 14), vx: rand(-60, 60), vy: rand(-60, 60), life: rand(.4, .9), size: rand(3, 6), grow: 5, color: 'rgba(170,165,155,1)', drag: 3, kind: 'smoke', L });
+    return false;
+  }
+  wallHp.delete(key);
+  setTile(tx, ty, L, K.FLOOR); refreshTile(tx, ty, L);
+  decals.push({ k: 'debris', x: cx, y: cy, L, a: 1 });
+  for (let i = 0; i < 16; i++) spawnPart({ x: cx, y: cy, vx: rand(-220, 220), vy: rand(-220, 220), life: rand(.5, 1.2), size: rand(2, 4.5), color: k === K.WOODW ? '#a97f40' : k === K.PART ? '#d8d4c8' : k === K.BRICK ? '#9a5a40' : '#8a8e94', drag: 3, kind: 'dot', L });
+  for (let i = 0; i < 6; i++) spawnPart({ x: cx + rand(-12, 12), y: cy + rand(-12, 12), vx: rand(-40, 40), vy: rand(-40, 40), life: rand(.9, 1.6), size: rand(8, 14), grow: 12, color: 'rgba(150,146,138,1)', drag: 1.6, kind: 'smoke', L });
+  sfx('crate');
+  return true;
 }
 // uma janela grande (2 ou 3 blocos) quebra inteira
 function breakWindow(tx, ty, L) {

@@ -316,7 +316,7 @@ function render() {
   }
   for (const d of decals) if (d.k === 'corpse' && layerShown(d.L, d.x, d.y)) {
     const ty = ETYPES[d.who];
-    drawSoldier(c2, d.x, d.y, d.ang, { dead: true, scale: ty ? ty.scale : 1, walk: 0 });
+    drawSoldier(c2, d.x, d.y, d.ang, { dead: true, scale: d.scale || (ty ? ty.scale : 1), walk: 0 });
   }
 
   // alvos de sabotagem e cargas plantadas
@@ -377,7 +377,7 @@ function render() {
     if (e.visible) {
       const ty = e.ty;
       const lk = e.mpId != null ? mpBotLook(e) : ty;
-      drawSoldier(c2, e.x, e.y, e.ang, { body: lk.color, vest: lk.vest, helmet: lk.helmet, stripe: lk.stripe, weapon: ty.weapon, flash: e.flash, recoil: e.flash > 0 ? 1 : 0, walk: e.walk, scale: ty.scale, tint: e.hitT > 0, wound: woundLevel(e), crawl: e.fx.crawl, swing: e.swing > 0 ? 1 - e.swing / .25 : 0 });
+      drawSoldier(c2, e.x, e.y, e.ang, { body: lk.color, vest: lk.vest, helmet: lk.helmet, stripe: lk.stripe, weapon: ty.weapon, skin: true, vestId: e.eq.body, helmId: e.eq.head, backId: e.eq.back, eyesId: e.eq.eyes, legsId: e.eq.legs, att: e.eq.att, fm: ty.w && ty.w.flashMul, flash: e.flash, recoil: e.flash > 0 ? 1 : 0, walk: e.walk, scale: ty.scale, tint: e.hitT > 0, wound: woundLevel(e), crawl: e.fx.crawl, swing: e.swing > 0 ? 1 - e.swing / .25 : 0 });
       if (ty.laser && e.state === 'attack' && e.sees && e.tgt && !e.tgt.dead && e.L === e.tgt.L) {     // mira a laser do sniper
         const ta = Math.atan2(e.tgt.y - e.y, e.tgt.x - e.x), dl = Math.min(Math.hypot(e.tgt.x - e.x, e.tgt.y - e.y), castRay(e.x, e.y, ta, 1200, e.L));
         c2.strokeStyle = 'rgba(255,40,40,' + (.25 + .35 * Math.min(1, 1.6 / Math.max(.3, e.pause + .3))) + ')'; c2.lineWidth = 1.3;

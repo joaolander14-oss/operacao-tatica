@@ -346,11 +346,11 @@ const WSLOT = { primary: 0, secondary: 1, melee: 2 };
 /* ---------- Acessórios (cano, parte superior, parte inferior) ---------- */
 const ATT_SLOTS = { muzzle: 'Boca do cano', top: 'Parte superior', under: 'Parte inferior' };
 const ATTACH = [
-  { id: 'a_sup',    slot: 'muzzle', name: 'Silenciador',           price: 600, mod: { noise: .12, dmg: .93, range: .9, sup: 1 }, desc: 'Quase inaudível, mas perde dano e alcance.' },
-  { id: 'a_flash',  slot: 'muzzle', name: 'Quebra-Chamas',         price: 250, mod: { flash: .3 }, desc: 'Esconde o clarão do disparo.' },
-  { id: 'a_comp',   slot: 'muzzle', name: 'Compensador',           price: 350, mod: { rcStep: .75, rcMax: .85 }, desc: 'Reduz o recuo acumulado.' },
-  { id: 'a_brake',  slot: 'muzzle', name: 'Freio de Boca',         price: 400, mod: { kick: .7, push: .6, rcStep: .88 }, desc: 'Menos coice e empurrão.' },
-  { id: 'a_long',   slot: 'muzzle', name: 'Cano Longo',            price: 700, mod: { range: 1.2, speed: 1.12, dmg: 1.06, spread: .9, speedMod: -.04 }, desc: 'Mais alcance, dano e precisão; mais pesado.' },
+  { id: 'a_sup',    slot: 'muzzle', name: 'Silenciador',           price: 600, mod: { noise: .12, dmg: .93, range: .9, sup: 1 }, desc: 'Disparo abafado e quase inaudível, mas perde dano e alcance.' },
+  { id: 'a_flash',  slot: 'muzzle', name: 'Quebra-Chamas',         price: 250, mod: { flash: .3, noise: .9 }, desc: 'Esconde o clarão do disparo e abafa um pouco o estampido.' },
+  { id: 'a_comp',   slot: 'muzzle', name: 'Compensador',           price: 350, mod: { rcStep: .75, rcMax: .85, noise: 1.12 }, desc: 'Reduz o recuo, mas o estampido fica mais estalado e alto.' },
+  { id: 'a_brake',  slot: 'muzzle', name: 'Freio de Boca',         price: 400, mod: { kick: .7, push: .6, rcStep: .88, noise: 1.2 }, desc: 'Menos coice e empurrão; o disparo fica bem mais alto.' },
+  { id: 'a_long',   slot: 'muzzle', name: 'Cano Longo',            price: 700, mod: { range: 1.2, speed: 1.12, dmg: 1.06, spread: .9, speedMod: -.04, noise: .93 }, desc: 'Mais alcance, dano e precisão; mais pesado e com som mais grave.' },
   { id: 'a_choke',  slot: 'muzzle', name: 'Choke Fechado',         price: 300, mod: { spread: .6, range: 1.15 }, only: 'shotgun', desc: 'Concentra o chumbo da escopeta.' },
   { id: 'a_red',    slot: 'top',    name: 'Mira Red Dot',          price: 300, mod: { spread: .88 }, desc: 'Mira rápida e precisa.' },
   { id: 'a_holo',   slot: 'top',    name: 'Mira Holográfica',      price: 450, mod: { spread: .85, rcStep: .95 }, desc: 'Boa precisão e leve estabilidade.' },
@@ -370,7 +370,7 @@ const attachOk = (w, a) => !!w.att && (!a.only || w.pellets > 1) && !(w.slot ===
 // estatísticas efetivas de uma arma com seus acessórios (e o tipo de cartucho carregado, nas escopetas)
 function effW(id, cal) {
   const w = WMAP[id], e = Object.assign({}, w);
-  e.base = w; e.look = 1; e.flashMul = 1; e.thermalR = 0; e.moveSpread = 1; e.fragR = 0; e.inc = false; e.stunS = 0;
+  e.base = w; e.look = 1; e.flashMul = 1; e.thermalR = 0; e.moveSpread = 1; e.fragR = 0; e.inc = false; e.stunS = 0; e.muzzle = null;
   if (w.melee) return e;
   let bd = w.dmg, bs = w.spread;
   if (w.fam) {
@@ -384,6 +384,7 @@ function effW(id, cal) {
   for (const s of ['muzzle', 'top', 'under']) {
     const a = at[s] && AMAP[at[s]];
     if (!a || !attachOk(w, a)) continue;
+    if (s === 'muzzle') e.muzzle = a.id;
     for (const k in a.mod) {
       if (k === 'speedMod') e.speedMod += a.mod[k];
       else if (k === 'sup' || k === 'laser' || k === 'light' || k === 'bipod') e[k] = true;
@@ -489,7 +490,100 @@ ETYPES.medic = { label: 'Médico', hp: 55, speed: 116, r: 11, dmg: 6, pen: 1.2, 
 ETYPES.rocketeer = { label: 'Antitanque', hp: 100, speed: 80, r: 13, dmg: 85, pen: 3, burst: 1, bdelay: 1, pmin: 3, pmax: 4.5, spread: .03, range: 900, vision: 640, pref: 450, bspeed: 520, color: '#5a4a2a', vest: '#3a2e18', helmet: '#463a20', stripe: '#ff8a3a', weapon: 'rpg', scale: 1.1, credit: 70, armor: .2, helm: .15, cls: 2, rocket: true, rocketR: 100, drop: 'rocket' };
 ETYPES.commando = { label: 'Comando', hp: 120, speed: 118, r: 12, dmg: 14, pen: 3.2, burst: 4, bdelay: .1, pmin: .8, pmax: 1.3, spread: .05, range: 700, vision: 640, pref: 300, bspeed: 700, color: '#2a2a30', vest: '#16161a', helmet: '#1c1c22', stripe: '#8fdcff', weapon: 'scar', scale: 1.05, credit: 80, armor: .3, helm: .3, cls: 3, drop: 'elite' };
 const EXTRA_TYPES = ['sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando'];
-const ALL_TYPES = [['soldier', 'Soldado'], ['scout', 'Batedor'], ['heavy', 'Pesado'], ['rusher', 'Invasor (corpo a corpo)'], ['sniper', 'Sniper (atira através de paredes de casa)'], ['shotgunner', 'Escopeteiro'], ['grenadier', 'Granadeiro'], ['medic', 'Médico'], ['rocketeer', 'Antitanque (foguete)'], ['commando', 'Comando']];
+/* ---------- Inimigos sorteados: arma + equipamento (o visual muda como no jogador) ---------- */
+const FOE_CATS = [
+  ['pist', 'Pistolas e revólveres', ['Pistolas', 'Pistolas automáticas', 'Revólveres']],
+  ['smg', 'Submetralhadoras', ['Submetralhadoras']],
+  ['ar', 'Fuzis de assalto', ['Fuzis de assalto']],
+  ['br', 'Fuzis de batalha e designados', ['Fuzis de batalha', 'Atiradores designados']],
+  ['mg', 'Metralhadoras', ['Metralhadoras']],
+  ['sg', 'Escopetas', ['Escopetas']],
+  ['sn', 'Snipers e rifles de alavanca', ['Snipers', 'Rifles de alavanca']],
+  ['la', 'Lançadores (foguetes)', ['Lançadores']],
+  ['ml', 'Só corpo a corpo', ['Corpo a corpo']],
+];
+const ALL_TYPES = FOE_CATS.map(c => [c[0], c[1]]);
+const FOE_PAL = [
+  ['#8a3b2c', '#4a2a22', '#5a322b'], ['#6a5a3a', '#3a3020', '#4a4028'], ['#4a5a3a', '#2a3a22', '#33452c'], ['#5a5f66', '#2e3236', '#3a3f44'],
+  ['#7a4a2a', '#4a2c18', '#5a3a20'], ['#5a3d6b', '#2e2238', '#3a2c47'], ['#9a7222', '#5a4418', '#715822'], ['#2a2a30', '#16161a', '#1c1c22'],
+];
+const FOE_STRIPE = ['#d44a35', '#ff9a3a', '#f0b43a', '#e8e8e8', '#ff6a8a'];
+const FOE_TIERS = { head: [null, 'h_light', 'h_mich', 'h_heavy'], body: [null, 'v_light', 'v_med', 'v_heavy', 'v_plate'], legs: [null, 'b_tac', 'b_run'], back: ['bp_s', 'bp_m', 'bp_l'], eyes: [null, 'nvg', 'thermal'] };
+// [distância preferida, alcance máximo, visão] por categoria de arma
+const FOE_ARCH = {
+  'Pistolas': [190, 420, 520], 'Pistolas automáticas': [180, 400, 520], 'Revólveres': [200, 480, 520], 'Submetralhadoras': [200, 480, 520], 'Fuzis de assalto': [300, 640, 560],
+  'Fuzis de batalha': [360, 760, 600], 'Atiradores designados': [460, 900, 720], 'Metralhadoras': [340, 700, 540], 'Escopetas': [130, 330, 500], 'Snipers': [700, 1100, 900],
+  'Rifles de alavanca': [280, 650, 560], 'Lançadores': [450, 900, 640], 'Corpo a corpo': [20, 0, 520], 'Armas pesadas': [340, 700, 540],
+};
+// sorteia arma, acessórios, proteção e suprimentos; power (0..1) = quão bem equipado
+function rollFoe(power, cats, boss) {
+  const rnd = a => a[(Math.random() * a.length) | 0];
+  power = Math.max(0, Math.min(1, power));
+  let grps = FOE_CATS.filter(c => (cats || []).includes(c[0])).flatMap(c => c[2]);
+  if (!grps.length) grps = FOE_CATS.flatMap(c => c[2]);
+  const cap = 500 + power * 4500;
+  const pool = WEAPONS.filter(w => grps.includes(w.grp) && !w.flame && w.id !== 'minigun' && w.id !== 'kord');
+  const wts = pool.map(w => (w.price <= cap ? 1 : .05) / (1 + w.price / (300 + power * 2500)));
+  let r = Math.random() * wts.reduce((a, b) => a + b, 0), pick = pool[0] || WMAP.ar15;
+  for (let i = 0; i < pool.length; i++) { r -= wts[i]; if (r <= 0) { pick = pool[i]; break; } }
+  const weapons = [null, null, null];
+  weapons[pick.slot === 'primary' ? 0 : pick.slot === 'secondary' ? 1 : 2] = pick.id;
+  const attach = {};
+  if (pick.att) {
+    const at = {};
+    for (const s of ['muzzle', 'top', 'under']) {
+      if (Math.random() > .3 + .35 * power) continue;
+      const opts = ATTACH.filter(a => a.slot === s && a.id !== 'a_thermal' && attachOk(pick, a));
+      if (opts.length) at[s] = rnd(opts).id;
+    }
+    attach[pick.id] = at;
+  }
+  const gear = {};
+  for (const s in FOE_TIERS) { const l = FOE_TIERS[s]; gear[s] = l[Math.floor(Math.random() * Math.min(l.length, 1 + power * (l.length - 1) + .999))]; }
+  if (boss) Object.assign(gear, { head: 'h_heavy', body: 'v_plate', legs: 'b_tac', back: 'bp_l', eyes: 'nvg' });
+  const nades = Math.random() < .28 + .25 * power ? Array.from({ length: 1 + ((Math.random() * 3) | 0) }, () => rnd(['frag', 'frag', 'flash', 'smoke', 'molotov'])) : null;
+  return { weapons, attach, gear, nades, heal: Math.random() < .2, power, boss: !!boss };
+}
+// estatísticas de combate do inimigo a partir da arma e do equipamento
+function foeTy(ld) {
+  const id = ld.weapons[0] || ld.weapons[1] || ld.weapons[2];
+  const saveLD = LD; LD = { attach: ld.attach || {}, weapons: ld.weapons, gear: ld.gear };
+  const w = effW(id); LD = saveLD;
+  const gk = s => ld.gear[s] ? GMAP[ld.gear[s]] : null, head = gk('head'), body = gk('body'), legs = gk('legs');
+  let kg = weaponKg(id, ld.attach[id]);
+  for (const s in ld.gear) if (ld.gear[s]) kg += GMAP[ld.gear[s]].kg;
+  const melee = !!w.melee;
+  if (!melee) kg += w.mag * 3 * ammoKg(w.cal);
+  let speed = 125 * loadMul(kg + 1) * (1 + (legs ? legs.spd : 0));
+  if (melee) speed = Math.max(speed * 1.35, 150);
+  const [pref, rng, vis] = FOE_ARCH[w.grp] || FOE_ARCH['Fuzis de assalto'];
+  const bk = body ? body.kg : 0, r = 11 + (bk >= 9 ? 2.5 : bk >= 5 ? 1 : 0) + (w.grp === 'Metralhadoras' ? 1 : 0);
+  const pal = FOE_PAL[(Math.random() * FOE_PAL.length) | 0];
+  const ty = {
+    hp: 55 + ((Math.random() * 20) | 0) + Math.round(bk * 1.5), speed, r, scale: r / 12, weapon: id, w,
+    color: pal[0], vest: pal[1], helmet: pal[2], stripe: FOE_STRIPE[(Math.random() * FOE_STRIPE.length) | 0],
+    armor: body ? body.abs : 0, helm: head ? head.abs : 0, cls: Math.max(body ? body.cls : 0, head ? head.cls : 0),
+    credit: 18 + Math.round((w.price || 0) / 45), vision: vis, pref, laser: w.grp === 'Snipers' || !!w.laser, nades: ld.nades, gcd: [6, 10], heal: ld.heal,
+  };
+  if (ld.attach[id] && (ld.attach[id].top === 'a_scope3' || ld.attach[id].top === 'a_scope6')) ty.vision = Math.round(vis * 1.15);
+  if (melee) {
+    Object.assign(ty, { melee: true, mdmg: Math.max(10, Math.round(w.dmg * .5)), mrange: Math.max(30, (w.range || 34) * .85), mdelay: Math.max(.6, (w.delay || .5) * 1.3), burst: 0, bdelay: 1, pmin: 1, pmax: 1, spread: 0, range: 0, dmg: 0, pen: 0, bspeed: 0 });
+    return ty;
+  }
+  const grp = w.grp, c = CALIBERS[w.cal];
+  let burst, bdelay, pmin, pmax;
+  if (w.rocket) { burst = 1; bdelay = 1; pmin = 2.6; pmax = 4; }
+  else if (w.burst) { burst = w.burst; bdelay = w.bd || .05; pmin = .9; pmax = 1.6; }
+  else if (w.delay < .3) { burst = Math.max(2, Math.min(8, Math.round(.42 / w.delay))); bdelay = Math.max(w.delay * 1.25, .08); pmin = grp === 'Metralhadoras' ? 1.2 : .8; pmax = grp === 'Metralhadoras' ? 2 : 1.5; }
+  else { burst = w.pellets > 1 && w.delay < .6 ? 2 : 1; bdelay = Math.max(w.delay, .3); pmin = Math.max(.9, w.delay * .9); pmax = Math.max(1.6, w.delay * 1.7); if (grp === 'Snipers') { pmin = Math.max(pmin, 1.6); pmax = Math.max(pmax, 2.6); } }
+  Object.assign(ty, {
+    burst, bdelay, pmin, pmax, pellets: Math.min(12, w.pellets || 1), pen: c.pen + (w.ap || 0), bspeed: w.speed,
+    dmg: w.rocket ? Math.round(w.dmg * .6) : Math.max(3, Math.round(w.dmg * .38)),
+    spread: w.pellets > 1 ? Math.min(.3, w.spread + .03) : Math.min(.22, .02 + w.spread * 1.5),
+    range: Math.max(260, Math.min(w.range * .9, rng)), rocket: !!w.rocket, rocketR: w.radius ? Math.round(w.radius * .85) : 0,
+  });
+  return ty;
+}
 /* ---------- Itens de cura (cada um com seu tempo de uso) ---------- */
 const HEALS = [
   { id: 'bandage',    name: 'Bandagem',       icon: '🩹', time: 2.2, cap: 6, desc: 'Rápida: estanca sangramentos e cura um pouco de tudo.' },
@@ -520,7 +614,7 @@ const MISSION_NAMES = ['FALCÃO NEGRO', 'LANÇA SILENCIOSA', 'TEMPESTADE DE AÇO
 const SAVE_KEY = 'operacao_tatica_v4';
 const DEFAULT_CUSTOM = () => ({
   weapons: ['ar15', 'm9', 'knife'], attach: {}, gear: { head: 'h_mich', body: 'v_med', legs: 'b_tac', back: 'bp_m', eyes: null }, squad: ['p_rifle'],
-  opts: { mode: 'kill', time: 'random', enemies: 10, level: 1, hpMul: 1, types: ['soldier', 'scout', 'heavy', 'rusher', 'sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando'], infAmmo: false, shadow: 40 },
+  opts: { mode: 'kill', time: 'random', enemies: 10, level: 1, hpMul: 1, types: FOE_CATS.map(c => c[0]), infAmmo: false, shadow: 40 },
 });
 function defaultSave() {
   return {
@@ -542,5 +636,5 @@ function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)
 const SAVE = loadSave();
 if (!SAVE.custom) SAVE.custom = DEFAULT_CUSTOM();
 if (!SAVE.settings) SAVE.settings = { shadow: 45 };
-if (SAVE.custom.opts && !SAVE.custom.opts.v6) { SAVE.custom.opts.v6 = 1; for (const t of ['sniper', 'shotgunner', 'grenadier', 'medic', 'rocketeer', 'commando']) if (!SAVE.custom.opts.types.includes(t)) SAVE.custom.opts.types.push(t); }
+if (SAVE.custom.opts && !SAVE.custom.opts.v7) { SAVE.custom.opts.v7 = 1; SAVE.custom.opts.types = FOE_CATS.map(c => c[0]); }
 let LD = SAVE;   // loadout ativo (campanha ou partida personalizada)
