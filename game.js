@@ -34,14 +34,25 @@ const sticks = {
 /* =====================================================================
    ÁUDIO (sintetizado)
    ===================================================================== */
-let AC = null, master = null, noiseBuf = null, muted = false;
+let AC = null, master = null, noiseBuf = null, muted = false, OUT = null, gunBus = null, revSend = null;
 function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
-    master = AC.createGain(); master.gain.value = .75;
+    master = AC.createGain(); master.gain.value = .95;
     const lim = AC.createDynamicsCompressor(); lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 8; lim.attack.value = .002; lim.release.value = .14;
     master.connect(lim); lim.connect(AC.destination);
+    // barramento dos tiros: saturação (soco/estalo "estourado" de bodycam) + reverberação por convolução (eco de rua/prédio)
+    gunBus = AC.createGain(); gunBus.gain.value = 2.1;
+    const sh = AC.createWaveShaper(), cv = new Float32Array(2048);
+    for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * 3.4) * .95; }
+    sh.curve = cv; sh.oversample = '2x';
+    gunBus.connect(sh); sh.connect(master);
+    const len = Math.floor(AC.sampleRate * 2.2), ir = AC.createBuffer(2, len, AC.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / AC.sampleRate; lp += ((Math.random() * 2 - 1) - lp) * (.55 - .4 * Math.min(1, t / 1.2)); d[i] = lp * Math.exp(-t * 2.6) * (1 + (i < 900 ? 1.5 : 0)); } }
+    const conv = AC.createConvolver(); conv.buffer = ir;
+    revSend = AC.createGain(); revSend.gain.value = .4;
+    sh.connect(revSend); revSend.connect(conv); conv.connect(master);
     noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -54,7 +65,7 @@ function noiseHit(dur, f0, f1, vol, delay = 0) {
   const fl = AC.createBiquadFilter(); fl.type = 'lowpass';
   fl.frequency.setValueAtTime(f0, t); fl.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+  s.connect(fl); fl.connect(g); g.connect(OUT || master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
 }
 function noiseHP(dur, f, vol, delay = 0) {
   if (!AC || muted) return;
@@ -62,7 +73,7 @@ function noiseHP(dur, f, vol, delay = 0) {
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
   const fl = AC.createBiquadFilter(); fl.type = 'highpass'; fl.frequency.value = f;
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+  s.connect(fl); fl.connect(g); g.connect(OUT || master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
 }
 function tone(f0, f1, dur, vol, type = 'sine', delay = 0) {
   if (!AC || muted) return;
@@ -70,7 +81,7 @@ function tone(f0, f1, dur, vol, type = 'sine', delay = 0) {
   const o = AC.createOscillator(); o.type = type;
   o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + .03);
+  o.connect(g); g.connect(OUT || master); o.start(t); o.stop(t + dur + .03);
 }
 const SFX = {
   pistol:  (v = 1) => { noiseHit(.09, 3500, 700, .35 * v); tone(220, 70, .07, .2 * v, 'square'); },
@@ -119,7 +130,8 @@ function gunshot(w, v = 1) {
   const brk = mz === 'a_brake' || mz === 'a_comp', fh = mz === 'a_flash', lb = mz === 'a_long';
   const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .92 : 1) * (lb ? .95 : 1) * (sup ? .5 : 1);   // silenciador abafa, mas ainda se ouve
   const near = clamp(v * 1.4, .15, 1);                                                // longe: perde o estalo agudo
-  const V = v * loud;
+  const V = v * loud * 1.45;
+  OUT = gunBus; if (revSend) revSend.gain.value = indoor ? .85 : (en > .62 ? .5 : .38);
   noiseHP(.016 + .022 * en, sup ? 1100 : brk ? 2600 : 2000, .95 * V * near * (sup ? .45 : 1));            // estalo seco (onda de choque)
   noiseHit(.07 + .13 * en, sup ? 2200 : 5200 * (1 - len / 260), sup ? 300 : 380, .9 * V * en);            // sopro do disparo
   tone((150 + (1 - en) * 150) * (lb ? .85 : 1), 32, .12 + .32 * en, .75 * V * en, 'sine');                // estampido grave
@@ -132,6 +144,7 @@ function gunshot(w, v = 1) {
   if (en > .62 || cls === 'sniper') noiseHit(.7, 1000, 70, (sup ? .08 : .2) * V * en, .2);
   if (indoor) { noiseHit(.25, 2200, 200, .24 * V * en, .05); noiseHit(.35, 1300, 110, .17 * V * en, .13); }
   if (sup) noiseHP(.02, 4500, .1 * v, .03);                                                               // clique mecânico
+  OUT = null;
 }
 
 /* =====================================================================
