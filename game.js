@@ -39,7 +39,9 @@ function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
-    master = AC.createGain(); master.gain.value = .5; master.connect(AC.destination);
+    master = AC.createGain(); master.gain.value = .75;
+    const lim = AC.createDynamicsCompressor(); lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 8; lim.attack.value = .002; lim.release.value = .14;
+    master.connect(lim); lim.connect(AC.destination);
     noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -51,6 +53,14 @@ function noiseHit(dur, f0, f1, vol, delay = 0) {
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
   const fl = AC.createBiquadFilter(); fl.type = 'lowpass';
   fl.frequency.setValueAtTime(f0, t); fl.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
+  const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+}
+function noiseHP(dur, f, vol, delay = 0) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + delay;
+  const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  const fl = AC.createBiquadFilter(); fl.type = 'highpass'; fl.frequency.value = f;
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
 }
@@ -98,31 +108,30 @@ const SFX = {
 };
 const sfx = (n, v) => { if (SFX[n]) SFX[n](v); };
 
-// Som de tiro sintetizado: estalo (crack) + estampido grave + cauda com eco. Muda com o calibre, o cano e o acessório de boca.
+// Som de tiro sintetizado, alto como na vida real: estalo supersônico + estampido + chão/eco. Muda com o calibre, o cano e o acessório de boca.
 function gunshot(w, v = 1) {
   if (!AC || muted || !w) return;
   const C = CALIBERS[w.cal], E = C ? C.dmg * (C.pel || 1) * .5 + (C.dmg || 10) * .5 : 20;
   const cls = w.snd || 'rifle', mz = w.muzzle, len = w.len || 25;
   const en = clamp(Math.log(E + 6) / Math.log(220), .22, 1.15);                     // "energia" do cartucho
   const indoor = player && bldIdxAt(player.x, player.y) >= 0;
-  if (w.sup || mz === 'a_sup') {                                                      // silenciado: sopro abafado + clique mecânico
-    noiseHit(.06 + en * .05, 1500, 280, .14 * v * en);
-    tone(130 + (1 - en) * 80, 55, .05, .07 * v, 'sine');
-    noiseHit(.02, 5200, 2400, .05 * v, .025);
-    return;
-  }
+  const sup = !!(w.sup || mz === 'a_sup');
   const brk = mz === 'a_brake' || mz === 'a_comp', fh = mz === 'a_flash', lb = mz === 'a_long';
-  const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .9 : 1) * (lb ? .94 : 1);
+  const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .92 : 1) * (lb ? .95 : 1) * (sup ? .5 : 1);   // silenciador abafa, mas ainda se ouve
   const near = clamp(v * 1.4, .15, 1);                                                // longe: perde o estalo agudo
-  noiseHit(.022 + .028 * en, brk ? 8200 : 6500, 1400, .4 * v * loud * near);          // crack
-  noiseHit(.05 + .1 * en, 3600 * (1 - len / 230), 380, .42 * v * en * loud);          // corpo do disparo
-  tone((130 + (1 - en) * 140) * (lb ? .85 : 1), 36, .08 + .22 * en, .34 * v * en, 'sine');   // estampido
-  if (cls === 'shotgun') tone(85, 30, .3, .36 * v, 'sawtooth');
-  if (cls === 'pistol' || cls === 'smg') noiseHit(.05, 4200, 900, .1 * v, .018);      // estalo da armação
-  if (en > .62 || cls === 'sniper') { noiseHit(.5 + en * .5, 1500, 85, .17 * v * en, .05); noiseHit(.55, 950, 75, .09 * v * en, .17); }
-  else noiseHit(.16 + en * .2, 1600, 120, .11 * v * en, .04);
-  if (indoor) { noiseHit(.22, 1800, 200, .1 * v * en, .07); noiseHit(.3, 1100, 120, .07 * v * en, .15); }   // eco em ambiente fechado
-  if (cls === 'sniper') tone(60, 28, .45, .22 * v, 'sine', .02);
+  const V = v * loud;
+  noiseHP(.016 + .022 * en, sup ? 1100 : brk ? 2600 : 2000, .95 * V * near * (sup ? .45 : 1));            // estalo seco (onda de choque)
+  noiseHit(.07 + .13 * en, sup ? 2200 : 5200 * (1 - len / 260), sup ? 300 : 380, .9 * V * en);            // sopro do disparo
+  tone((150 + (1 - en) * 150) * (lb ? .85 : 1), 32, .12 + .32 * en, .75 * V * en, 'sine');                // estampido grave
+  tone((90 + (1 - en) * 60), 28, .08 + .2 * en, .45 * V * en, 'triangle', .004);                           // corpo
+  if (cls === 'shotgun') { tone(80, 26, .4, .7 * V, 'sawtooth'); noiseHit(.3, 2400, 200, .5 * V); }
+  if (cls === 'pistol' || cls === 'smg') noiseHP(.05, 3200, .25 * V, .016);                                // armação / ação do ferrolho
+  if (cls === 'sniper') tone(55, 24, .6, .45 * V, 'sine', .02);
+  // eco do ambiente (chão, prédios): mais longo em tiros fortes e em lugares fechados
+  noiseHit(.2 + en * .55, 1700, 90, (sup ? .12 : .32) * V * en, .06);
+  if (en > .62 || cls === 'sniper') noiseHit(.7, 1000, 70, (sup ? .08 : .2) * V * en, .2);
+  if (indoor) { noiseHit(.25, 2200, 200, .24 * V * en, .05); noiseHit(.35, 1300, 110, .17 * V * en, .13); }
+  if (sup) noiseHP(.02, 4500, .1 * v, .03);                                                               // clique mecânico
 }
 
 /* =====================================================================
@@ -1071,7 +1080,7 @@ function allyShoot(a, w) {
     });
   }
   a.flash = .06;
-  gunshot(w, clamp(1 - Math.hypot(a.x - player.x, a.y - player.y) / 900, .05, .8) * .7);
+  gunshot(w, clamp(1.1 - Math.hypot(a.x - player.x, a.y - player.y) / 1600, .1, 1) * .8);
   makeNoise(a.x, a.y, w.noise * .7);
 }
 
@@ -1365,7 +1374,7 @@ function enemyShoot(e) {
     bullets.push(b); made.push(b);
   }
   e.flash = .06;
-  const vol = clamp(1 - Math.hypot(e.x - player.x, e.y - player.y) / 900, 0, 1);
+  const vol = clamp(1.15 - Math.hypot(e.x - player.x, e.y - player.y) / 1600, .1, 1);
   if (ty.rocket) sfx('rpg', vol); else gunshot(ty.w, vol * .9);
   if (MP.on && MP.isHost && e.mpId != null) mpSendShots(made, e.mpId);
 }

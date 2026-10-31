@@ -281,7 +281,7 @@ function mpOnShots(m, pl) {
     const w = WMAP[first.id], d = Math.hypot(first.x - player.x, first.y - player.y);
     r.fl = .06; r.rec = 1;
     if (MP.isHost && enemies.length) makeNoise(first.x, first.y, w.noise);
-    if (d < 1400) { if (w.rocket) sfx('rpg', clamp(1.15 - d / 1100, .08, 1)); else gunshot(Object.assign({}, w, { muzzle: first.mz, sup: w.sup || first.sup }), clamp(1.15 - d / 1100, .08, 1)); }
+    if (d < 2200) { if (w.rocket) sfx('rpg', clamp(1.2 - d / 1800, .12, 1)); else gunshot(Object.assign({}, w, { muzzle: first.mz, sup: w.sup || first.sup }), clamp(1.2 - d / 1800, .12, 1)); }
   }
 }
 
