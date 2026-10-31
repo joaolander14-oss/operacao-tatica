@@ -7,7 +7,7 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
-const MP_VER = 20;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER = 21;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
 const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [
@@ -69,7 +69,7 @@ function mpCleanLoad(l) {
   if (!l || typeof l !== 'object') return out;
   if (Array.isArray(l.weapons)) l.weapons.slice(0, 3).forEach((id, i) => { if (WMAP[id]) out.weapons[i] = id; });
   if (l.attach && typeof l.attach === 'object') for (const id in l.attach) if (WMAP[id] && l.attach[id] && typeof l.attach[id] === 'object') { const a = {}; for (const s of ['muzzle', 'top', 'under']) if (AMAP[l.attach[id][s]]) a[s] = l.attach[id][s]; out.attach[id] = a; }
-  if (l.gear && typeof l.gear === 'object') for (const s of ['head', 'body', 'legs', 'back', 'eyes']) if (GMAP[l.gear[s]]) out.gear[s] = l.gear[s];
+  if (l.gear && typeof l.gear === 'object') for (const s of ['head', 'body', 'legs', 'back', 'eyes', 'radio']) if (GMAP[l.gear[s]]) out.gear[s] = l.gear[s];
   return out;
 }
 function mpSanName(s, max = 14) { s = String(s || '').replace(/[^\p{L}\p{N} _.\-]/gu, '').trim().slice(0, max); return s || 'Soldado'; }
@@ -87,6 +87,7 @@ function mpSendTo(id, m) {
   else if (MP.hostConn && MP.hostConn.open) MP.hostConn.send(m);
 }
 function mpClose() {
+  if (typeof radioStop === 'function') radioStop();
   MP.on = false; MP.state = 'home'; MP.ended = false;
   try { if (MP.peer) MP.peer.destroy(); } catch (_) { /* ignora */ }
   MP.peer = null; MP.hostConn = null; MP.conns.clear(); MP.players.clear(); MP.remotes.clear(); MP.order = []; MP.isHost = false; MP.code = ''; MP.myId = 0;
@@ -104,10 +105,11 @@ function mpCreate() {
     MP.peer = peer;
     peer.on('open', () => {
       MP.code = code; MP.state = 'lobby'; MP.status = '';
-      MP.players.set(0, { id: 0, name: MP.name, team: 0, kills: 0, deaths: 0, load: mpLoad() });
+      MP.players.set(0, { id: 0, name: MP.name, team: 0, kills: 0, deaths: 0, load: mpLoad(), pid: peer.id });
       renderMp();
     });
     peer.on('connection', conn => mpHostAccept(conn));
+    peer.on('call', call => { if (typeof radioOnCall === 'function') radioOnCall(call); });
     peer.on('disconnected', () => { try { peer.reconnect(); } catch (_) { /* ignora */ } });
     peer.on('error', e => {
       if (e.type === 'unavailable-id' && n < 6) { try { peer.destroy(); } catch (_) { /* ignora */ } attempt(n + 1); return; }
@@ -129,7 +131,7 @@ function mpHostRecv(conn, m) {
     if (MP.on || MP.players.size >= MP_MAX) { conn.send({ t: 'full', why: MP.on ? 'A partida já começou.' : 'Sala cheia.' }); setTimeout(() => { try { conn.close(); } catch (_) { /* ignora */ } }, 400); return; }
     const id = MP.nextId++, t0 = [...MP.players.values()].filter(p => p.team === 0).length, t1 = MP.players.size - t0;
     conn._pid = id; MP.conns.set(id, conn);
-    MP.players.set(id, { id, name: mpSanName(m.name), team: MP.cfg.gm === 'coop' ? 0 : (t0 <= t1 ? 0 : 1), kills: 0, deaths: 0, load: mpCleanLoad(m.load) });
+    MP.players.set(id, { id, name: mpSanName(m.name), team: MP.cfg.gm === 'coop' ? 0 : (t0 <= t1 ? 0 : 1), kills: 0, deaths: 0, load: mpCleanLoad(m.load), pid: typeof m.pid === 'string' ? m.pid.slice(0, 80) : '' });
     conn.send({ t: 'welcome', id, ver: MP_VER });
     mpTrimBots();
     mpBroadcastLobby();
@@ -170,7 +172,7 @@ function mpSyncBots() {
   MP.cfg.bots = n;
 }
 function mpBroadcastLobby() {
-  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot ? 1 : 0, load: p.bot ? p.load : undefined })), cfg: MP.cfg, code: MP.code });
+  mpSend({ t: 'lobby', players: [...MP.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot ? 1 : 0, load: p.bot ? p.load : undefined, pid: p.bot ? undefined : p.pid })), cfg: MP.cfg, code: MP.code });
   renderMp();
 }
 function mpJoin(code) {
@@ -180,11 +182,12 @@ function mpJoin(code) {
   mpClose();
   MP.isHost = false; MP.state = 'connecting'; MP.code = code; MP.status = 'Conectando à sala ' + code + '...'; renderMp();
   const peer = new Peer(); MP.peer = peer;
+  peer.on('call', call => { if (typeof radioOnCall === 'function') radioOnCall(call); });
   const timer = setTimeout(() => { if (MP.state === 'connecting') { mpClose(); mpSetStatus('Tempo esgotado. Confira o código e a internet.'); } }, 15000);
   peer.on('open', () => {
     const conn = peer.connect('optac-' + code, { reliable: true, serialization: 'json' });
     MP.hostConn = conn;
-    conn.on('open', () => conn.send({ t: 'hello', name: MP.name, load: mpLoad(), ver: MP_VER }));
+    conn.on('open', () => conn.send({ t: 'hello', name: MP.name, load: mpLoad(), ver: MP_VER, pid: peer.id }));
     conn.on('data', m => mpGuestRecv(m));
     conn.on('close', () => { clearTimeout(timer); mpHostLost(); });
     conn.on('error', () => { /* o fechamento trata */ });
@@ -210,7 +213,7 @@ function mpApplyLobby(m) {
   for (const q of m.players.slice(0, MP_MAX)) {
     const id = q.id | 0, old = MP.players.get(id);
     const bot = !!q.bot && id >= 100;
-    next.set(id, { id, name: mpSanName(q.name, bot ? 24 : 14), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: bot ? mpCleanLoad(q.load) : (old ? old.load : mpCleanLoad(null)), foe: old && old.foe, bot });
+    next.set(id, { id, name: mpSanName(q.name, bot ? 24 : 14), team: q.team ? 1 : 0, kills: old ? old.kills : 0, deaths: old ? old.deaths : 0, load: bot ? mpCleanLoad(q.load) : (old ? old.load : mpCleanLoad(null)), foe: old && old.foe, bot, pid: bot ? '' : (typeof q.pid === 'string' ? q.pid.slice(0, 80) : (old && old.pid) || '') });
   }
   MP.players = next;
   if (m.cfg && typeof m.cfg === 'object') {
@@ -264,7 +267,7 @@ function mpOnState(m) {
   r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
   r.lastMsg = G.time; r.bg = !!m.bg; r.stale = false;
   if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; if (r.dead && !m.d) r.revT = G.time; }
-  r.hl = !!m.hl; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); if (!!m.d && !r.dead) r.deadT = G.time; r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
+  r.hl = !!m.hl; r.rc = m.rc | 0; r.rr = mpNum(m.rr); r.rtx = !!m.rx; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); if (!!m.d && !r.dead) r.deadT = G.time; r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
   if (m.fl) r.fl = .06;
   if (typeof m.ps === 'string' && m.ps.length === 6) { r.ps = m.ps.split('').map(ch => clamp(+ch || 0, 0, 4)); mpPartsOf(r); }
 }
@@ -288,6 +291,7 @@ function mpSendState(bg) {
   const p = player, w = curW();
   const s = mpStateOf(p.x, p.y, p.L, p.ang, p.melee ? p.melee.w.id : (w ? w.id : null), Math.round(p.hp), p.dead, G.protT > 0, p.fx && p.fx.crawl, p.flash > 0, PARTS.map(k => pState(p, k)).join(''));
   s.t = 'st'; s.hl = p.healing ? 1 : 0; if (bg) s.bg = 1;
+  s.rc = radioCh(); { const rr = radioRange(); s.rr = rr >= 90000 ? 99999 : rr; } s.rx = radioTxOn() ? 1 : 0;
   mpSend(s);
   // o anfitrião manda o estado de todos os bots em UMA mensagem
   if (MP.isHost) {
@@ -565,6 +569,7 @@ function mpBegin(cfg, order) {
   startMission('mp', 1, { mode: 'mp', mp: true, seed: MP.cfg.seed, time: MP.cfg.night ? 'night' : 'day', enemies: 0, level: 1, hpMul: 1, types: null, infAmmo: false, shadow: o.shadow, squad: [] });
   const me = MP.players.get(MP.myId); if (me) me.load = mpLoad();
   mpSend({ t: 'load', load: mpLoad() });
+  setTimeout(() => { if (MP.on && typeof radioStart === 'function') radioStart(); }, 1500);
   const lay = mpSpawnLayout(MP.order.length), s = lay[Math.max(0, MP.order.indexOf(MP.myId))];
   mpPlace(s);
   G.protT = MP_PROT;
@@ -620,6 +625,7 @@ function mpUpdate(dt) {
   if (player.dead) { MP.respawnT -= dt; if (MP.respawnT <= 0) mpRespawn(); }
   MP.sendT -= dt;
   if (MP.sendT <= 0) { MP.sendT = MP_SEND; mpSendState(); }
+  radioTick();
   if (MP.isHost) { MP.alT = (MP.alT || 0) - dt; if (MP.alT <= 0) { MP.alT = 1; mpSend({ t: 'al', a: mpAliveList() }); } }
   for (const r of MP.remotes.values()) {
     r.stale = G.time - r.lastMsg > 3.5;
@@ -653,7 +659,7 @@ function mpDraw(c, p, pts) {
     if (!r.vis) { r.seenT = Math.max(0, (r.seenT || 0) - G.dt); if (r.seenT > 0 && canView(p.L, r.L, r.x, r.y) && d < VIS) r.vis = true; } else r.seenT = .22;
     if (!r.vis) continue;
     const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = null, look = mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
-    drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
+    drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, radioId: ld.gear.radio, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
     if (r.bg) { c.fillStyle = '#ffd24a'; c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('💤', r.x, r.y - 36); c.fillText('💤', r.x, r.y - 36); }
     if (r.hl) { c.fillStyle = '#6fe07a'; c.font = 'bold 14px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('✚', r.x + 16, r.y - 14); c.fillText('✚', r.x + 16, r.y - 14); }
     if (r.pr) { c.strokeStyle = 'rgba(143,220,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(r.x, r.y, 17, 0, PI2); c.stroke(); c.setLineDash([]); }
@@ -665,6 +671,7 @@ function mpDraw(c, p, pts) {
     c.font = 'bold 10px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.fillStyle = mpColor(r.id);
     const nm = pl ? pl.name : '?';
     c.strokeText(nm, r.x, r.y - 28); c.fillText(nm, r.x, r.y - 28);
+    if (r.rtx && RADIO.hear.includes(r.id)) c.fillText('🎙', r.x + c.measureText(nm).width / 2 + 9, r.y - 28);
     if (r.showT > 0) {
       c.save(); c.globalAlpha = Math.min(1, r.showT);
       c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(r.x + 18, r.y - 46, 30, 52);

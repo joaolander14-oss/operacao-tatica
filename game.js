@@ -523,7 +523,7 @@ function playerKg(p) {
   let kg = 0;
   for (const sl of p.slots) if (sl) { kg += weaponKg(sl.id, LD.attach && LD.attach[sl.id]); if (!sl.w.melee && !sl.w.inf) kg += sl.mag * ammoKg(sl.cal); }
   for (const c in p.pool) kg += p.pool[c] * ammoKg(c);
-  for (const s of ['head', 'body', 'legs', 'back', 'eyes']) { const gr = gearOf(s); if (gr) kg += gr.kg; }
+  for (const s of ['head', 'body', 'legs', 'back', 'eyes', 'radio']) { const gr = gearOf(s); if (gr) kg += gr.kg; }
   kg += p.cons.grenade * .45 + p.cons.med * .5 + p.cons.repair * .6;
   for (const k in p.thr) kg += p.thr[k] * .4;
   for (const k in p.hl) kg += p.hl[k] * .15;

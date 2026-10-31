@@ -194,6 +194,7 @@ function drawSoldier(c, x, y, ang, o) {
   if (o.legsId === 'b_run') { c.fillStyle = '#d33'; c.fillRect(st - 1, -6.6, 2, 3); c.fillRect(-st - 1, 3.6, 2, 3); }
   c.fillStyle = body; c.beginPath(); c.ellipse(0, 0, 6.8, 12.2, 0, 0, PI2); c.fill();
   if (o.skin && !dead && !o.tint) drawVestSkin(c, o.vestId, vest); else { c.fillStyle = vest; c.fillRect(-4.6, -7.8, 9.2, 15.6); }
+  if (o.radioId && !dead && !o.tint && GMAP[o.radioId]) { const rl = 2.5 + Math.min(4, GMAP[o.radioId].kg * 1.2); c.fillStyle = '#1a1d1f'; c.fillRect(-1.6, -10.4, 4, 3); c.strokeStyle = '#2a2d30'; c.lineWidth = .9; c.beginPath(); c.moveTo(.4, -10.4); c.lineTo(-1.4, -10.4 - rl); c.stroke(); c.fillStyle = '#5bd36a'; c.fillRect(1.2, -9.7, 1, 1); }
   if (o.wound) { c.fillStyle = 'rgba(150,10,10,.8)'; for (let i = 0; i < o.wound; i++) { c.beginPath(); c.arc(-2 + i * 2.2, -4 + i * 3.4, 2.2, 0, PI2); c.fill(); } }
   if (!dead) {
     const rec = (o.recoil || 0) * 3;
@@ -533,7 +534,7 @@ function render() {
     const hasArmor = (p.armor.body && p.armor.body.dur > 0) || (p.armor.head && p.armor.head.dur > 0);
     const m = p.melee;
     if (MP.on && G.protT > 0) { c2.strokeStyle = 'rgba(143,220,255,.7)'; c2.lineWidth = 2; c2.setLineDash([4, 4]); c2.beginPath(); c2.arc(p.x, p.y, 17, 0, PI2); c2.stroke(); c2.setLineDash([]); }
-    drawSoldier(c2, p.x, p.y, p.ang, { ...(MP.on ? mpLook(MP.myId) : PLAYER_LOOK), skin: true, vestId: LD.gear.body, helmId: LD.gear.head, backId: LD.gear.back, eyesId: LD.gear.eyes, legsId: LD.gear.legs, att: !p.melee && w ? LD.attach[w.id] : null, weapon: m ? m.w.id : (w ? w.id : null), flash: p.flash, fm: w && w.flashMul, recoil: p.recoil, walk: p.moving ? p.walk : 0, scale: 1, tint: G.hurtFlash > .7, wound: woundLevel(p), crawl: p.fx.crawl, swing: m ? clamp(m.t / m.dur, 0, 1) : 0 });
+    drawSoldier(c2, p.x, p.y, p.ang, { ...(MP.on ? mpLook(MP.myId) : PLAYER_LOOK), skin: true, vestId: LD.gear.body, helmId: LD.gear.head, backId: LD.gear.back, eyesId: LD.gear.eyes, radioId: LD.gear.radio, legsId: LD.gear.legs, att: !p.melee && w ? LD.attach[w.id] : null, weapon: m ? m.w.id : (w ? w.id : null), flash: p.flash, fm: w && w.flashMul, recoil: p.recoil, walk: p.moving ? p.walk : 0, scale: 1, tint: G.hurtFlash > .7, wound: woundLevel(p), crawl: p.fx.crawl, swing: m ? clamp(m.t / m.dur, 0, 1) : 0 });
     if (m) {   // rastro do golpe
       const arc = m.w.arc, pr = clamp(m.t / m.dur, 0, 1), a0 = p.ang + arc / 2, a1 = p.ang + lerp(arc / 2, -arc / 2, pr);
       c2.strokeStyle = 'rgba(255,255,255,.5)'; c2.lineWidth = 5; c2.lineCap = 'round';
@@ -989,6 +990,10 @@ window.addEventListener('keydown', e => {
     else if (e.code === 'KeyF') quickMelee();
     else if (e.code === 'KeyN') toggleVision();
     else if (e.code === 'KeyK') toggleMed();
+    else if (e.code === 'KeyY') radioPtt(true);
+    else if (e.code === 'KeyU') toggleRadioPanel();
+    else if (e.code === 'BracketLeft') radioStep(-1);
+    else if (e.code === 'BracketRight') radioStep(1);
     else if (e.code === 'KeyB') cycleAmmoType();
     else if (e.code === 'KeyT') cycleThrowable();
     else if (e.code === 'KeyG') throwGrenade();
@@ -999,8 +1004,8 @@ window.addEventListener('keydown', e => {
   }
   input.keys.add(e.code);
 });
-window.addEventListener('keyup', e => input.keys.delete(e.code));
-window.addEventListener('blur', () => { input.keys.clear(); input.mouseDown = false; if (G.state === 'play' && !MP.on) setPaused(true); });
+window.addEventListener('keyup', e => { input.keys.delete(e.code); if (e.code === 'KeyY') radioPtt(false); });
+window.addEventListener('blur', () => { radioPtt(false); input.keys.clear(); input.mouseDown = false; if (G.state === 'play' && !MP.on) setPaused(true); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && G.state === 'play' && !MP.on) setPaused(true);
   // no multiplayer, em segundo plano (celular) o jogo para de rodar: avisa os outros periodicamente em vez de sumir

@@ -386,3 +386,21 @@ body.touch #cons button{width:40px;height:40px}
 #medList .o{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.07)}
 #medList .ok{color:#8be36a}
 #medList h4{margin:8px 0 2px;font-size:11px;letter-spacing:.1em;color:#9fb0b8}
+
+/* ===== V28: rádio ===== */
+#radioTag{margin-top:4px;font-size:10px;font-weight:700;color:#cfd8dc;text-shadow:0 1px 2px #000;cursor:pointer;pointer-events:auto;max-width:210px}
+#radioTag.tx{color:#ff6a5a}
+#radioTag.rx{color:#7dff9a}
+#btnRadio.hold{border-color:#ff6a5a;background:rgba(255,90,70,.25)}
+#radioPanel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;background:rgba(10,14,16,.94);border:1px solid var(--line);border-radius:12px;padding:12px 14px;width:min(420px,94vw);pointer-events:auto;color:#dfe6ea}
+#radioPanel .medHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;letter-spacing:.08em}
+#radioPanel button{background:#222c31;color:#fff;border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
+#radioBody .rname{font-weight:800;font-size:14px;margin-bottom:6px}
+#radioBody .rfreq{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:6px 0}
+#radioBody .rfreq div{text-align:center}
+#radioBody .rfreq b{display:block;font-size:20px;letter-spacing:.08em;color:#7dff9a}
+#radioBody .rfreq small{color:#9fb0b8}
+#radioBody .rinfo{font-size:12px;line-height:1.5;color:#c3ced4}
+#radioBody .rrow{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:12px}
+#radioBody .ok{color:#8be36a}#radioBody .bad{color:#ff8a70}
+#radioBody h4{margin:8px 0 2px;font-size:11px;letter-spacing:.1em;color:#9fb0b8}

@@ -9,7 +9,7 @@ let invCtx = 'base';                       // 'base' (menu) | 'mission' (durante
 const ars = { tab: 'weapons', cat: 'Todas', custom: null, gslot: 'head' };
 let slotEls = [];
 
-const GEAR_ICON = { head: '⛑️', body: '🦺', legs: '🥾', back: '🎒', eyes: '🥽' };
+const GEAR_ICON = { head: '⛑️', body: '🦺', legs: '🥾', back: '🎒', eyes: '🥽', radio: '📻' };
 const OVERLAYS = ['menu', 'arsenal', 'endScreen', 'pauseScreen', 'customScreen', 'mpScreen'];
 function hideAllOverlays() { OVERLAYS.forEach(id => $(id).classList.add('hidden')); }
 const SLOT_LABEL = ['PRIM.', 'SEC.', 'CORPO'];
@@ -129,6 +129,18 @@ function updateHUD() {
   const blur = dz > .05 ? 'blur(' + (dz * 2.2).toFixed(1) + 'px)' : '';
   if (hudCache.blur !== blur) { hudCache.blur = blur; $('game').style.filter = blur; }
   if (medOpen) updateMedPanel();
+  {
+    const rg = MP.on && radioGear(), rt = $('radioTag');
+    $('btnRadio').classList.toggle('hidden', !rg);
+    $('btnRadio').classList.toggle('hold', RADIO.lastTx);
+    rt.classList.toggle('hidden', !MP.on);
+    if (MP.on) {
+      const ch = radioCh(), hs = RADIO.hear.map(id => { const q = MP.players.get(id); return q ? q.name : '?'; });
+      setText('radioTag', rg ? '📻 CANAL ' + ch + ' · ' + radioFreq(ch) + (RADIO.lastTx ? ' · 🎙 TRANSMITINDO' : '') + (hs.length ? ' · 🔊 ' + hs.join(', ') : '') : '📻 sem rádio');
+      rt.classList.toggle('tx', RADIO.lastTx); rt.classList.toggle('rx', hs.length > 0);
+    }
+    if (RADIO.open) radioPanel();
+  }
 
   slotEls.forEach((s, i) => {
     const sl = p.slots[i];
@@ -188,7 +200,7 @@ function renderMenu() {
   }).join('');
   const ws = LD.weapons.filter(Boolean).map(id => WMAP[id].name).join(' · ');
   const sq = LD.squad.map(id => PMAP[id] && PMAP[id].role).filter(Boolean).join(', ') || 'sem parceiros';
-  const g = ['head', 'body', 'legs', 'back', 'eyes'].map(s => LD.gear[s] ? GMAP[LD.gear[s]].name : null).filter(Boolean).join(' · ') || 'sem equipamento';
+  const g = ['head', 'body', 'legs', 'back', 'eyes', 'radio'].map(s => LD.gear[s] ? GMAP[LD.gear[s]].name : null).filter(Boolean).join(' · ') || 'sem equipamento';
   $('menuLoadout').innerHTML = `<div><b>Armas:</b> ${ws}</div><div><b>Proteção:</b> ${g}</div><div><b>Esquadrão:</b> ${sq}</div>`;
 }
 $('modeGrid').addEventListener('click', e => {
@@ -528,6 +540,7 @@ hit('btnHeal', cycleHeal);
 hit('btnRep', useRepair);
 hit('btnCmd', toggleHold);
 hit('btnVis', toggleVision);
+{ const b = $('btnRadio'); b.addEventListener('pointerdown', e => { e.preventDefault(); radioPtt(true); }); for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => radioPtt(false)); }
 $('btnAct').addEventListener('pointerdown', e => { stopEv(e); input.act = true; });
 ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => $('btnAct').addEventListener(ev, () => { input.act = false; }));
 $('btnPause').addEventListener('click', () => setPaused(true));

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b100c">
 <title>Operação Tática</title>
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -15,7 +15,7 @@
   <div id="topLeft">
     <div class="bar"><div id="hpFill"></div><span id="hpText">100</span></div>
     <div class="bar armor"><div id="arFill"></div><span id="arText"></span></div>
-    <div class="bodyRow"><canvas id="bodyHud" width="62" height="98" title="Ficha médica (K)"></canvas><canvas id="armHud" width="62" height="98" title="Defesa (K)"></canvas><div><div id="floorTag">TÉRREO</div><div id="loadTag"></div><div id="bleedTag" class="hidden">🩸 SANGRANDO</div><div id="arrestTag" class="hidden">💔 PARADA CARDÍACA</div></div></div>
+    <div class="bodyRow"><canvas id="bodyHud" width="62" height="98" title="Ficha médica (K)"></canvas><canvas id="armHud" width="62" height="98" title="Defesa (K)"></canvas><div><div id="floorTag">TÉRREO</div><div id="loadTag"></div><div id="bleedTag" class="hidden">🩸 SANGRANDO</div><div id="arrestTag" class="hidden">💔 PARADA CARDÍACA</div><div id="radioTag" class="hidden" title="Rádio (U)"></div></div></div>
     <div id="killInfo">☠ <b id="kills">0</b> &nbsp;·&nbsp; <span id="timer">00:00</span></div>
     <div id="squad"></div>
   </div>
@@ -43,6 +43,7 @@
     <button id="btnMed" title="Item de cura (H)"><span>✚</span><b id="cMed">0</b><i>H</i></button>
     <button id="btnHeal" title="Trocar item de cura (X)"><span>⟳</span><i>X</i></button>
     <button id="btnRep" title="Reparar colete (V)"><span>🛡</span><b id="cRep">0</b><i>V</i></button>
+    <button id="btnRadio" class="hidden" title="Rádio: segure para falar (Y)"><span>🎙</span><i>Y</i></button>
     <button id="btnVis" class="hidden" title="Visão noturna/térmica (N)"><span>👁</span><i>N</i></button>
     <button id="btnThr" title="Trocar item arremessável (T)"><span>⟳</span><i>T</i></button>
     <button id="btnAmmo" class="hidden" title="Tipo de cartucho (B)"><span>🔁</span><i>B</i></button>
@@ -135,6 +136,7 @@
   <div class="medCols"><canvas id="medBody" width="170" height="270"></canvas><canvas id="medArm" width="170" height="270"></canvas></div>
   <div id="medList"></div>
 </div>
+<div id="radioPanel" class="hidden"><div class="medHead"><b>📻 RÁDIO</b><button id="radioClose">✕</button></div><div id="radioBody"></div></div>
 <div id="pauseScreen" class="overlay hidden">
   <div class="panel small">
     <div class="logo">PAUSADO</div>
@@ -149,13 +151,14 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="data.js?v=27"></script>
-<script src="world.js?v=27"></script>
-<script src="game.js?v=27"></script>
-<script src="mp.js?v=27"></script>
-<script src="mpmodes.js?v=27"></script>
-<script src="mpmodes2.js?v=27"></script>
-<script src="render.js?v=27"></script>
-<script src="ui.js?v=27"></script>
+<script src="data.js?v=29"></script>
+<script src="world.js?v=29"></script>
+<script src="game.js?v=29"></script>
+<script src="mp.js?v=29"></script>
+<script src="radio.js?v=29"></script>
+<script src="mpmodes.js?v=29"></script>
+<script src="mpmodes2.js?v=29"></script>
+<script src="render.js?v=29"></script>
+<script src="ui.js?v=29"></script>
 </body>
 </html>

@@ -532,6 +532,11 @@ const GEAR = [
   { id: 'th_lite',   slot: 'eyes', name: 'Térmica Compacta',   vis: 40, mode: 'th', thermal: 260, price: 1200, col: '#ff9a3a', desc: 'Visão térmica de curto alcance (tecla N).' },
   { id: 'nvg3',      slot: 'eyes', name: 'Óculos Noturnos Gen3', vis: 260, mode: 'nv', price: 1500, col: '#7dff9a', desc: 'Visão noturna de alta qualidade (+260 de alcance).' },
   { id: 'hybrid',    slot: 'eyes', name: 'Visor Híbrido',      vis: 200, mode: 'nv', thermal: 220, price: 2600, col: '#b4ff7d', desc: 'Visão noturna com detecção térmica por perto (tecla N).' },
+  { id: 'r_pulse',  slot: 'radio', name: 'Rádio de Pulso',      radioRange: 450,   radioCh: 4,  price: 0,    desc: 'Curto alcance e só 4 canais. Leve.' },
+  { id: 'r_walkie', slot: 'radio', name: 'Walkie-Talkie',       radioRange: 900,   radioCh: 8,  price: 400,  desc: 'Alcance médio e 8 canais.' },
+  { id: 'r_tac',    slot: 'radio', name: 'Rádio Tático',        radioRange: 1800,  radioCh: 16, price: 900,  desc: 'Bom alcance e 16 canais.' },
+  { id: 'r_vhf',    slot: 'radio', name: 'Rádio VHF de Mochila', radioRange: 3600, radioCh: 40, price: 1800, desc: 'Longo alcance e 40 canais. Pesado.' },
+  { id: 'r_sat',    slot: 'radio', name: 'Rádio Satelital',     radioRange: 99999, radioCh: 99, price: 3200, desc: 'Alcance do mapa inteiro e 99 canais.' },
   { id: 'bp_s',     slot: 'back', name: 'Mochila Pequena',    capMul: 1,   cons: 0, price: 0,    desc: 'Capacidade padrão.' },
   { id: 'bp_m',     slot: 'back', name: 'Mochila Média',      capMul: 1.4, cons: 1, price: 450,  desc: '+40% munição, +2 suprimentos.' },
   { id: 'bp_l',     slot: 'back', name: 'Mochila Grande',     capMul: 1.8, cons: 2, price: 1000, desc: '+80% munição, +4 suprimentos.' },
@@ -542,7 +547,8 @@ const GMAP = Object.fromEntries(GEAR.map(g => [g.id, g]));
 /* ---------- Peso carregado (mão + costas) e velocidade ---------- */
 const GKG = { h_light: .5, h_mich: 1.4, h_heavy: 3.2, v_light: 2, v_med: 5, v_heavy: 9, v_plate: 13, b_tac: 1.2, b_run: .8, bp_s: 1, bp_m: 2, bp_l: 3.4, nvg: .6, thermal: 1.3,
   h_cap: .1, h_pasgt: 1.5, h_ops: 1.1, h_riot: 2.4, h_ceramic: 3.6, h_eod: 6, v_conc: 1, v_assault: 7, v_iiia: 5.5, v_carrier: 10, v_eod: 20, v_iv: 16,
-  b_work: 1.4, b_steel: 2.4, b_sprint: .6, b_exo: 3.5, e_goggle: .2, bino: .5, th_lite: .8, nvg3: .7, hybrid: 1.5 };
+  b_work: 1.4, b_steel: 2.4, b_sprint: .6, b_exo: 3.5, e_goggle: .2, bino: .5, th_lite: .8, nvg3: .7, hybrid: 1.5,
+  r_pulse: .2, r_walkie: .4, r_tac: .8, r_vhf: 2.2, r_sat: 3.5 };
 GEAR.forEach(g => { g.kg = GKG[g.id] || 0; });
 const ATT_KG = { a_sup: .5, a_flash: .15, a_comp: .2, a_brake: .25, a_long: .7, a_choke: .2, a_red: .2, a_holo: .3, a_scope3: .6, a_scope6: .9, a_thermal: 1.1, a_grip: .25, a_angled: .2, a_laser: .2, a_light: .2, a_bipod: .6 };
 // massa de uma munição (kg)
@@ -569,10 +575,10 @@ function loadoutKg(ld) {
     const w = WMAP[id]; kg += weaponKg(id, ld.attach && ld.attach[id]);
     if (!w.melee && !w.inf) kg += w.mag * 5 * ammoKg(w.cal);
   }
-  for (const s of ['head', 'body', 'legs', 'back', 'eyes']) if (ld.gear[s]) kg += GMAP[ld.gear[s]].kg;
+  for (const s of ['head', 'body', 'legs', 'back', 'eyes', 'radio']) if (ld.gear[s]) kg += GMAP[ld.gear[s]].kg;
   return kg + 2 * .45 + 2 * .5 + .6 + 4 * .15;
 }
-const SLOT_NAMES = { head: 'Capacete', body: 'Colete', legs: 'Botas', back: 'Mochila', eyes: 'Óculos' };
+const SLOT_NAMES = { head: 'Capacete', body: 'Colete', legs: 'Botas', back: 'Mochila', eyes: 'Óculos', radio: 'Rádio' };
 
 /* ---------- Parceiros ---------- */
 const PARTNERS = [
@@ -725,7 +731,7 @@ const MISSION_NAMES = ['FALCÃO NEGRO', 'LANÇA SILENCIOSA', 'TEMPESTADE DE AÇO
 /* ---------- Progresso salvo ---------- */
 const SAVE_KEY = 'operacao_tatica_v4';
 const DEFAULT_CUSTOM = () => ({
-  weapons: ['ar15', 'm9', 'knife'], attach: {}, gear: { head: 'h_mich', body: 'v_med', legs: 'b_tac', back: 'bp_m', eyes: null }, squad: ['p_rifle'],
+  weapons: ['ar15', 'm9', 'knife'], attach: {}, gear: { head: 'h_mich', body: 'v_med', legs: 'b_tac', back: 'bp_m', eyes: null, radio: 'r_tac' }, squad: ['p_rifle'],
   opts: { mode: 'kill', time: 'random', enemies: 10, level: 1, hpMul: 1, types: FOE_CATS.map(c => c[0]), infAmmo: false, shadow: 40 },
 });
 function defaultSave() {
@@ -749,4 +755,5 @@ const SAVE = loadSave();
 if (!SAVE.custom) SAVE.custom = DEFAULT_CUSTOM();
 if (!SAVE.settings) SAVE.settings = { shadow: 45 };
 if (SAVE.custom.opts && !SAVE.custom.opts.v7) { SAVE.custom.opts.v7 = 1; SAVE.custom.opts.types = FOE_CATS.map(c => c[0]); }
+if (SAVE.custom.gear && !SAVE.custom.vRadio) { SAVE.custom.vRadio = 1; if (!SAVE.custom.gear.radio) SAVE.custom.gear.radio = 'r_tac'; }
 let LD = SAVE;   // loadout ativo (campanha ou partida personalizada)
