@@ -9,10 +9,10 @@ Jogo de operações de soldados em 2D (visão de cima), feito só com HTML, CSS 
 - ~167 armas (pistolas, SMGs, fuzis de assalto e de batalha, DMRs, metralhadoras, 18 escopetas, snipers, antimaterial, lançadores, corpo a corpo), 56 calibres com dano/penetração próprios, acessórios e skins.
 - Paredes de madeira, tijolo (casas) e concreto (prédios): cada calibre atravessa até certo material e todo obstáculo atravessado reduz o dano.
 - 7 modelos de construção (casa, cabana de madeira, bangalô, sobrado de 2 andares, galpão, garagem, prédio de escritórios) e 10 tipos de inimigos (sniper, escopeteiro, granadeiro, médico, antitanque, comando…), cada um com arma e saque próprios.
-- Prédios com 2 andares, telhados que somem quando você entra, portas, janelas, penetração de materiais, visão noturna e térmica.
+- Prédios e sobrados com até 4 andares (duas escadas alternadas), janelas grandes de 2 ou 3 blocos que quebram inteiras, telhados que somem quando você entra, portas, janelas, penetração de materiais, visão noturna e térmica.
 - Dano por partes do corpo (estilo War Thunder), sangramento, coletes, arremessáveis (granada, atordoante, fumaça, molotov, sinalizador, mina).
 - **Multiplayer online** (até 8 jogadores): Todos contra todos ou Equipes, direto entre navegadores via WebRTC (PeerJS). Quem cria a sala passa o código/link aos amigos. O anfitrião pode adicionar até 8 bots (variados, básicos, elite, snipers…). Modos: Todos contra todos, Equipes, **Ataque × Defesa — Bomba** (plantar/desarmar, sem renascer no round) e **Ataque × Defesa — Capturar zona**, com rounds e troca de lados.
-- Trocar de arma tem tempo de equipar (varia por categoria) e carrega sozinha se estiver vazia; 6 itens de cura (bandagem, analgésico, adrenalina, tala, kit médico, kit cirúrgico), cada um com seu tempo de uso (H usa, X troca).
+- O peso de tudo que você carrega (armas na mão e nas costas, acessórios, munição, proteção e suprimentos) define a velocidade: armas leves quase não pesam; metralhadoras e armas pesadas reduzem bastante. Trocar de arma tem tempo de equipar (varia por categoria) e carrega sozinha se estiver vazia; 6 itens de cura (bandagem, analgésico, adrenalina, tala, kit médico, kit cirúrgico), cada um com seu tempo de uso (H usa, X troca).
 
 ## Controles
 WASD mover · mouse mira/atira · 1-3 armas · R recarrega · F golpe · G arremessar · T trocar item · B tipo de cartucho · H kit médico · V reparar colete · N visão · E interagir · I inventário · Esc pausa. No celular: analógicos na tela.

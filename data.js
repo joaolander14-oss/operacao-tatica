@@ -325,6 +325,11 @@ const WEAPONS = [
 ];
 // tempo para sacar/equipar a arma ao trocar (s)
 const EQUIP = { 'Pistolas': .35, 'Pistolas automáticas': .4, 'Revólveres': .45, 'Submetralhadoras': .5, 'Fuzis de assalto': .65, 'Fuzis de batalha': .8, 'Atiradores designados': .85, 'Metralhadoras': 1.2, 'Escopetas': .7, 'Snipers': 1.1, 'Rifles de alavanca': .6, 'Lançadores': 1.2, 'Armas pesadas': 1.8, 'Corpo a corpo': .25 };
+// peso (kg) por categoria; algumas armas têm peso próprio
+const WKG_GRP = { 'Pistolas': .9, 'Pistolas automáticas': 1.3, 'Revólveres': 1.2, 'Submetralhadoras': 2.9, 'Fuzis de assalto': 3.5, 'Fuzis de batalha': 4.5, 'Atiradores designados': 5.2, 'Metralhadoras': 8, 'Escopetas': 3.4, 'Snipers': 6, 'Rifles de alavanca': 3.2, 'Lançadores': 6.5, 'Armas pesadas': 16, 'Corpo a corpo': .5 };
+const WKG_OVR = { minigun: 21, kord: 28, ptrs: 17, m82: 14, m99: 12.5, m200: 14, awm: 7, mg42: 11.5, m249: 7.5, pkm: 8.4, m60: 10.5, mg3: 11.5, negev: 7.5, rpd: 7, bren: 10, flame: 15, rpg: 6.3, m72: 2.5, m79: 2.7, mgl: 5.3,
+  mp7: 1.9, p90: 2.6, mp9: 1.4, vector: 2.7, mp5: 2.5, uzi: 3.5, knife: .35, knuckles: .2, baton: .5, machete: .8, bat: 1, crowbar: 1.6, tomahawk: .9, katana: 1.1, sledge: 5.5, dupla: 3.2, coach: 2.8, canoserrado: 1.8, ks23: 4.2, win1887: 3.8 };
+WEAPONS.forEach(w => { w.kg = WKG_OVR[w.id] != null ? WKG_OVR[w.id] : +(WKG_GRP[w.grp] * Math.min(1.25, Math.max(.9, .8 + (w.len || 25) / 120))).toFixed(1); });
 WEAPONS.forEach(w => {
   w.eq = EQUIP[w.grp] || .6;
   if (!w.melee) {
@@ -424,6 +429,37 @@ const GEAR = [
   { id: 'thermal',  slot: 'eyes', name: 'Visão Térmica',      vis: 60,  mode: 'th', thermal: 380, price: 1800, desc: 'Visão térmica (tecla N): corpos quentes brilham, mesmo atrás de paredes.' },
 ];
 const GMAP = Object.fromEntries(GEAR.map(g => [g.id, g]));
+/* ---------- Peso carregado (mão + costas) e velocidade ---------- */
+const GKG = { h_light: .5, h_mich: 1.4, h_heavy: 3.2, v_light: 2, v_med: 5, v_heavy: 9, v_plate: 13, b_tac: 1.2, b_run: .8, bp_s: 1, bp_m: 2, bp_l: 3.4, nvg: .6, thermal: 1.3 };
+GEAR.forEach(g => { g.kg = GKG[g.id] || 0; });
+const ATT_KG = { a_sup: .5, a_flash: .15, a_comp: .2, a_brake: .25, a_long: .7, a_choke: .2, a_red: .2, a_holo: .3, a_scope3: .6, a_scope6: .9, a_thermal: 1.1, a_grip: .25, a_angled: .2, a_laser: .2, a_light: .2, a_bipod: .6 };
+// massa de uma munição (kg)
+function ammoKg(cal) {
+  const c = CALIBERS[cal];
+  if (!c) return .01;
+  if (cal === 'rocket') return .9;
+  if (cal === '40mm') return .22;
+  if (cal === 'fuel') return .004;
+  if (c.fam) return cal === '10ga' ? .05 : cal === '23mm' ? .09 : .036;
+  return .005 + c.dmg * .00022;
+}
+function weaponKg(id, att) {
+  let kg = WMAP[id].kg;
+  if (att) for (const s of ['muzzle', 'top', 'under']) if (att[s] && ATT_KG[att[s]] && AMAP[att[s]] && attachOk(WMAP[id], AMAP[att[s]])) kg += ATT_KG[att[s]];
+  return kg;
+}
+const LOAD_FREE = 8;                                                       // até aqui não há penalidade
+const loadMul = kg => Math.max(.5, Math.min(1, 1 / (1 + Math.max(0, kg - LOAD_FREE) * .024)));
+// carga de um loadout "inicial" (4 carregadores por arma + suprimentos padrão), para o arsenal
+function loadoutKg(ld) {
+  let kg = 0;
+  for (const id of ld.weapons) if (id) {
+    const w = WMAP[id]; kg += weaponKg(id, ld.attach && ld.attach[id]);
+    if (!w.melee && !w.inf) kg += w.mag * 5 * ammoKg(w.cal);
+  }
+  for (const s of ['head', 'body', 'legs', 'back', 'eyes']) if (ld.gear[s]) kg += GMAP[ld.gear[s]].kg;
+  return kg + 2 * .45 + 2 * .5 + .6 + 4 * .15;
+}
 const SLOT_NAMES = { head: 'Capacete', body: 'Colete', legs: 'Botas', back: 'Mochila', eyes: 'Óculos' };
 
 /* ---------- Parceiros ---------- */

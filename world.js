@@ -6,8 +6,11 @@
    Camadas: L = -1 térreo/exterior · L >= 0 = 2º andar do prédio de índice L
    ===================================================================== */
 
+const MAXF = 4;                                   // andares máximos por prédio (0 = térreo)
 let grid0 = new Uint8Array(NT), grid1 = new Uint8Array(NT), ftype = new Uint8Array(NT), bldAt = new Int8Array(NT).fill(-1);
-let blds = [], doors = [], reachN = new Uint8Array(2 * NT), spawnT = { x: 4, y: MH - 5 }, extT = { x: MW - 5, y: 4 };
+let gridF = [grid0, grid1, new Uint8Array(NT), new Uint8Array(NT)];   // um grid por andar
+let layerBld = [], layerFloor = [], mapUFloor = 0;                    // camada L >= 0 = (prédio, andar)
+let blds = [], doors = [], reachN = new Uint8Array(MAXF * NT), spawnT = { x: 4, y: MH - 5 }, extT = { x: MW - 5, y: 4 };
 
 const mapC = document.createElement('canvas'), mapX = mapC.getContext('2d');
 const map1C = document.createElement('canvas'), map1X = map1C.getContext('2d');
@@ -19,13 +22,15 @@ miniStatic.width = MW * MINI_S; miniStatic.height = MH * MINI_S;
 function kindF(tx, ty, L) {
   if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return K.WALL;
   const i = ty * MW + tx;
-  return (L >= 0 && bldAt[i] === L) ? grid1[i] : grid0[i];
+  return (L >= 0 && bldAt[i] === layerBld[L]) ? gridF[layerFloor[L]][i] : grid0[i];
 }
+const floorOfL = L => L < 0 ? 0 : layerFloor[L];
+const layerOf = (bi, f) => f === 0 ? -1 : blds[bi].layers[f];
+const hasFl = (x, y, f) => { if (x < 0 || y < 0 || x >= MW || y >= MH) return false; const b = bldAt[y * MW + x]; return b >= 0 && blds[b].floors > f; };
 const solidF = (tx, ty, L) => MAT[kindF(tx, ty, L)].mv === 1;
 const bldIdxAt = (x, y) => { const tx = Math.floor(x / T), ty = Math.floor(y / T); return (tx < 0 || ty < 0 || tx >= MW || ty >= MH) ? -1 : bldAt[ty * MW + tx]; };
-const has2F = b => b >= 0 && blds[b].floors === 2;
 // visão entre camadas: quem está no 2º andar enxerga o exterior (pelas janelas); o térreo não enxerga o 2º andar
-const canView = (viewL, tgtL, x, y) => tgtL === viewL || (viewL >= 0 && tgtL === -1 && bldIdxAt(x, y) !== viewL);
+const canView = (viewL, tgtL, x, y) => tgtL === viewL || (viewL >= 0 && tgtL === -1 && bldIdxAt(x, y) !== layerBld[viewL]);
 
 /* ---------- Colisão círculo × tiles ---------- */
 function moveEntity(e, dx, dy) {
@@ -77,19 +82,19 @@ function hasLOS(x1, y1, x2, y2, L) {
   return true;
 }
 
-/* ---------- Pathfinding em 2 camadas (térreo = 0, 2º andar = 1) ---------- */
-const PQ = new Int32Array(2 * NT), PREV = new Int32Array(2 * NT), SEEN = new Uint32Array(2 * NT);
+/* ---------- Pathfinding em N andares (nó = andar * NT + tile) ---------- */
+const PQ = new Int32Array(MAXF * NT), PREV = new Int32Array(MAXF * NT), SEEN = new Uint32Array(MAXF * NT);
 let stamp = 0;
 const DX8 = [1, -1, 0, 0, 1, 1, -1, -1];
 const DY8 = [0, 0, 1, -1, 1, -1, 1, -1];
 
-function passAt(g0, g1, bAt, bl, fl, i) {
-  if (fl === 0) return WALKABLE[g0[i]] === 1;
+function passAt(gf, bAt, bl, fl, i) {
+  if (fl === 0) return WALKABLE[gf[0][i]] === 1;
   const b = bAt[i];
-  return b >= 0 && bl[b].floors === 2 && WALKABLE[g1[i]] === 1;
+  return b >= 0 && bl[b].floors > fl && WALKABLE[gf[fl][i]] === 1;
 }
 // BFS genérico; goal < 0 → percorre tudo (usado para alcançabilidade)
-function bfsNodes(g0, g1, bAt, bl, start, goal, outReach) {
+function bfsNodes(gf, bAt, bl, start, goal, outReach) {
   stamp++;
   let h = 0, t = 0;
   PQ[t++] = start; SEEN[start] = stamp; PREV[start] = -1;
@@ -97,29 +102,29 @@ function bfsNodes(g0, g1, bAt, bl, start, goal, outReach) {
   while (h < t) {
     const c = PQ[h++];
     if (c === goal) break;
-    const fl = c >= NT ? 1 : 0, i = c - fl * NT, cx = i % MW, cy = (i / MW) | 0;
+    const fl = (c / NT) | 0, i = c - fl * NT, cx = i % MW, cy = (i / MW) | 0;
     for (let k = 0; k < 8; k++) {
       const dx = DX8[k], dy = DY8[k], nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
       const ni = ny * MW + nx, n = fl * NT + ni;
-      if (SEEN[n] === stamp || !passAt(g0, g1, bAt, bl, fl, ni)) continue;
-      if (dx !== 0 && dy !== 0 && (!passAt(g0, g1, bAt, bl, fl, cy * MW + nx) || !passAt(g0, g1, bAt, bl, fl, ny * MW + cx))) continue;
+      if (SEEN[n] === stamp || !passAt(gf, bAt, bl, fl, ni)) continue;
+      if (dx !== 0 && dy !== 0 && (!passAt(gf, bAt, bl, fl, cy * MW + nx) || !passAt(gf, bAt, bl, fl, ny * MW + cx))) continue;
       SEEN[n] = stamp; PREV[n] = c; PQ[t++] = n; if (outReach) outReach[n] = 1;
     }
-    const kind = (fl ? g1 : g0)[i];
+    const kind = gf[fl][i];
     if (kind === K.STAIRUP || kind === K.STAIRDN) {
-      const n = (1 - fl) * NT + i;
-      if (SEEN[n] !== stamp && passAt(g0, g1, bAt, bl, 1 - fl, i)) { SEEN[n] = stamp; PREV[n] = c; PQ[t++] = n; if (outReach) outReach[n] = 1; }
+      const nf = fl + (kind === K.STAIRUP ? 1 : -1), n = nf * NT + i;
+      if (nf >= 0 && nf < MAXF && SEEN[n] !== stamp && passAt(gf, bAt, bl, nf, i)) { SEEN[n] = stamp; PREV[n] = c; PQ[t++] = n; if (outReach) outReach[n] = 1; }
     }
   }
 }
 function findPath(sx, sy, sL, tx, ty, tL) {
-  const sf = sL >= 0 ? 1 : 0, tf = tL >= 0 ? 1 : 0;
+  const sf = floorOfL(sL), tf = floorOfL(tL);
   const si = sy * MW + sx, ti = ty * MW + tx;
   if (sx < 0 || sy < 0 || tx < 0 || ty < 0 || sx >= MW || tx >= MW || sy >= MH || ty >= MH) return null;
-  if (!passAt(grid0, grid1, bldAt, blds, tf, ti) || !passAt(grid0, grid1, bldAt, blds, sf, si)) return null;
+  if (!passAt(gridF, bldAt, blds, tf, ti) || !passAt(gridF, bldAt, blds, sf, si)) return null;
   const s = sf * NT + si, goal = tf * NT + ti;
-  bfsNodes(grid0, grid1, bldAt, blds, s, goal, null);
+  bfsNodes(gridF, bldAt, blds, s, goal, null);
   if (SEEN[goal] !== stamp) return null;
   const path = [];
   for (let c = goal; c !== -1; c = PREV[c]) path.push(c);
@@ -134,7 +139,8 @@ function genWorld(seed) {
     const rnd = mulberry32(seed + attempt * 7919);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
     const shuffle = a => a.sort(() => rnd() - .5);
-    const g0 = new Uint8Array(NT), g1 = new Uint8Array(NT), f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
+    const g0 = new Uint8Array(NT), g1 = new Uint8Array(NT), g2 = new Uint8Array(NT), g3 = new Uint8Array(NT), f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
+    const gridsF = [g0, g1, g2, g3];
     const idx = (x, y) => y * MW + x;
     const dl = [], bl = [];
     for (let x = 0; x < MW; x++) { g0[idx(x, 0)] = K.WALL; g0[idx(x, MH - 1)] = K.WALL; }
@@ -147,31 +153,36 @@ function genWorld(seed) {
     const sp = { x: 4, y: MH - 5 }, ex = { x: MW - 5, y: 4 };
     const spaceFree = (x, y, w, h, m) => bl.every(b => x - m >= b.x + b.w || x + w + m <= b.x || y - m >= b.y + b.h || y + h + m <= b.y);
 
-    // janelas ao longo do perímetro (evita portas vizinhas)
-    const placeWindows = (g, b, step) => {
+    // janelas grandes (2 ou 3 blocos) ao longo do perímetro, longe das portas
+    const placeWindows = (g, b, gap) => {
       const sides = [
         { n: b.w - 2, at: i => idx(b.x + 1 + i, b.y), nb: 1 },
         { n: b.w - 2, at: i => idx(b.x + 1 + i, b.y + b.h - 1), nb: 1 },
         { n: b.h - 2, at: i => idx(b.x, b.y + 1 + i), nb: MW },
         { n: b.h - 2, at: i => idx(b.x + b.w - 1, b.y + 1 + i), nb: MW },
       ];
-      for (const s of sides) for (let i = ri(0, 1); i < s.n; i += step) {
-        const t = s.at(i);
-        if (!isWallK(g[t]) || g[t - s.nb] === K.DOOR || g[t + s.nb] === K.DOOR) continue;
-        g[t] = K.WINDOW;
+      for (const s of sides) {
+        const okAt = k => { if (k >= s.n) return false; const t = s.at(k); return isWallK(g[t]) && g[t - s.nb] !== K.DOOR && g[t + s.nb] !== K.DOOR; };
+        let i = ri(0, 1);
+        while (i < s.n) {
+          let len = ri(2, 3);
+          while (len > 0) { let ok = true; for (let k = 0; k < len; k++) if (!okAt(i + k)) { ok = false; break; } if (ok) break; len--; }
+          if (len > 0) { for (let k = 0; k < len; k++) g[s.at(i + k)] = K.WINDOW; i += len + gap; } else i++;
+        }
       }
     };
 
     for (let tries = 0; tries < 500 && bl.length < 12; tries++) {
-      const mr = rnd(), model = mr < .3 ? 'office' : mr < .5 ? 'casa' : mr < .63 ? 'cabana' : mr < .75 ? 'bangalo' : mr < .86 ? 'galpao' : mr < .95 ? 'sobrado' : 'garagem';
-      const office = model === 'office', two = office || model === 'sobrado', wide = office || model === 'galpao' || model === 'garagem';
-      const SZ = { office: [9, 13, 7, 10], casa: [6, 8, 5, 7], cabana: [5, 6, 5, 6], bangalo: [8, 10, 6, 8], galpao: [10, 13, 6, 8], sobrado: [7, 9, 6, 8], garagem: [5, 6, 4, 5] }[model];
+      const mr = rnd(), model = mr < .22 ? 'office' : mr < .35 ? 'edificio' : mr < .53 ? 'casa' : mr < .63 ? 'cabana' : mr < .73 ? 'bangalo' : mr < .82 ? 'galpao' : mr < .94 ? 'sobrado' : 'garagem';
+      const office = model === 'office' || model === 'edificio', wide = model === 'office' || model === 'galpao' || model === 'garagem';
+      const F = model === 'office' ? ri(2, 4) : model === 'edificio' ? ri(3, 4) : model === 'sobrado' ? ri(2, 3) : 1;
+      const SZ = { office: [9, 13, 7, 10], edificio: [8, 11, 6, 8], casa: [6, 8, 5, 7], cabana: [5, 6, 5, 6], bangalo: [8, 10, 6, 8], galpao: [10, 13, 6, 8], sobrado: [7, 9, 6, 8], garagem: [5, 6, 4, 5] }[model];
       const wallK = office ? K.WALL : (model === 'cabana' || model === 'galpao') ? K.WOODW : K.BRICK;
       const w = ri(SZ[0], SZ[1]), h = ri(SZ[2], SZ[3]), x = ri(3, MW - w - 3), y = ri(3, MH - h - 3);
       if (x < 14 && y + h > MH - 14) continue;
       if (x + w > MW - 14 && y < 14) continue;
       if (!spaceFree(x, y, w, h, 3)) continue;
-      const b = { x, y, w, h, kind: office ? 'office' : 'house', model, floors: two ? 2 : 1, roofA: 1, stairs: null };
+      const b = { x, y, w, h, kind: office ? 'office' : 'house', model, floors: F, roofA: 1, stairs: [] };
       const bi = bl.length; bl.push(b);
       for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
         const edge = xx === x || xx === x + w - 1 || yy === y || yy === y + h - 1;
@@ -183,7 +194,7 @@ function genWorld(seed) {
         if (s < 2) { const dx = ri(x + 1, x + w - 1 - dw), dy = s === 0 ? y : y + h - 1; for (let k = 0; k < dw; k++) { g0[idx(dx + k, dy)] = K.DOOR; dl.push({ idx: idx(dx + k, dy), fl: 0, open: false, t: 0 }); } }
         else { const dy = ri(y + 1, y + h - 1 - dw), dx = s === 2 ? x : x + w - 1; for (let k = 0; k < dw; k++) { g0[idx(dx, dy + k)] = K.DOOR; dl.push({ idx: idx(dx, dy + k), fl: 0, open: false, t: 0 }); } }
       }
-      placeWindows(g0, b, 3);
+      placeWindows(g0, b, 2);
 
       // divisórias de drywall com porta
       let px = null, py = null;
@@ -201,49 +212,60 @@ function genWorld(seed) {
       };
       if (model === 'cabana' || model === 'galpao' || model === 'garagem') { /* ambiente único */ } else if (w >= 10) px = partition(g0, 0, true); else if (h >= 8 || (w >= 7 && !office)) { if (w >= 7 && !office && h < 8) px = partition(g0, 0, true); else py = partition(g0, 0, false); }
 
-      // escada (apenas prédios): dois tiles lado a lado
-      if (two) {
-        for (let k = 0; k < 40 && !b.stairs; k++) {
-          const sx = ri(x + 2, x + w - 4), sy = ri(y + 2, y + h - 3);
-          if (px !== null && (Math.abs(sx - px) <= 1 || Math.abs(sx + 1 - px) <= 1)) continue;
-          if (py !== null && Math.abs(sy - py) <= 1) continue;
-          b.stairs = { x: sx, y: sy };
+      // poços de escada: 1 (2 andares) ou 2 alternados (3+ andares); cada poço = 2 tiles lado a lado
+      const stairs = b.stairs;
+      if (F > 1) {
+        const want = F > 2 ? 2 : 1;
+        for (let k = 0; k < want; k++) {
+          for (let t = 0; t < 120; t++) {
+            const wide2 = t >= 40;      // sem espaço: aceita encostar mais nas paredes
+            const sx = wide2 ? ri(x + 1, x + w - 3) : ri(x + 2, x + w - 4), sy = wide2 ? ri(y + 1, y + h - 2) : ri(y + 2, y + h - 3);
+            if (px !== null && (Math.abs(sx - px) <= 1 || Math.abs(sx + 1 - px) <= 1)) continue;
+            if (py !== null && Math.abs(sy - py) <= 1) continue;
+            const near = wide2 ? (s => Math.abs(s.x - sx) < 2 && s.y === sy) : (s => Math.abs(s.x - sx) < 4 && Math.abs(s.y - sy) < 3);
+            if (stairs.some(near)) continue;
+            stairs.push({ x: sx, y: sy }); break;
+          }
         }
-        if (!b.stairs) b.floors = 1;
+        if (stairs.length === 0) b.floors = 1; else if (b.floors > 2 && stairs.length < 2) b.floors = 2;
       }
-      const nearStairs = (cx, cy) => b.stairs && cx >= b.stairs.x - 1 && cx <= b.stairs.x + 2 && Math.abs(cy - b.stairs.y) <= 1;
-      for (let k = 0, nc = model === 'galpao' ? ri(4, 8) : model === 'garagem' ? ri(1, 2) : ri(1, 3); k < nc; k++) {
-        const cx = ri(x + 2, x + w - 3), cy = ri(y + 2, y + h - 3);
-        if (px !== null && Math.abs(cx - px) <= 1) continue;
-        if (py !== null && Math.abs(cy - py) <= 1) continue;
-        if (nearStairs(cx, cy)) continue;
-        if (g0[idx(cx, cy)] === K.FLOOR) g0[idx(cx, cy)] = K.CRATE;
-      }
+      const nearStairs = (cx, cy) => stairs.some(s => cx >= s.x - 1 && cx <= s.x + 2 && Math.abs(cy - s.y) <= 1);
+      const crates = (g, nc, pxx, pyy) => {
+        for (let k = 0; k < nc; k++) {
+          const cx = ri(x + 2, x + w - 3), cy = ri(y + 2, y + h - 3);
+          if (pxx !== null && Math.abs(cx - pxx) <= 1) continue;
+          if (pyy !== null && Math.abs(cy - pyy) <= 1) continue;
+          if (nearStairs(cx, cy)) continue;
+          if (g[idx(cx, cy)] === K.FLOOR) g[idx(cx, cy)] = K.CRATE;
+        }
+      };
+      crates(g0, model === 'galpao' ? ri(4, 8) : model === 'garagem' ? ri(1, 2) : ri(1, 3), px, py);
 
-      // 2º andar
-      if (b.floors === 2) {
+      // andares superiores
+      for (let f = 1; f < b.floors; f++) {
+        const gf = gridsF[f];
         for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
           const edge = xx === x || xx === x + w - 1 || yy === y || yy === y + h - 1;
-          g1[idx(xx, yy)] = edge ? wallK : K.FLOOR;
+          gf[idx(xx, yy)] = edge ? wallK : K.FLOOR;
         }
-        placeWindows(g1, b, 3);
-        let px1 = null, py1 = null;
-        if (px !== null) py1 = partition(g1, 1, false); else px1 = partition(g1, 1, true);
-        for (let k = 0, nc = ri(1, 3); k < nc; k++) {
-          const cx = ri(x + 2, x + w - 3), cy = ri(y + 2, y + h - 3);
-          if (px1 !== null && Math.abs(cx - px1) <= 1) continue;
-          if (py1 !== null && Math.abs(cy - py1) <= 1) continue;
-          if (nearStairs(cx, cy)) continue;
-          if (g1[idx(cx, cy)] === K.FLOOR) g1[idx(cx, cy)] = K.CRATE;
-        }
-        // a partição do 2º andar não pode cruzar a escada
-        for (const t of [idx(b.stairs.x, b.stairs.y), idx(b.stairs.x + 1, b.stairs.y)]) { g0[t] = K.STAIRUP; g1[t] = K.STAIRDN; }
-        for (const dxy of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, -1], [1, -1]]) {
-          const t = idx(b.stairs.x + dxy[0], b.stairs.y + dxy[1]);
-          if (g1[t] === K.PART) g1[t] = K.FLOOR;
-          if (g0[t] === K.PART) g0[t] = K.FLOOR;
-        }
+        placeWindows(gf, b, 2);
+        let pxf = null, pyf = null;
+        if ((f % 2 === 1) === (px !== null)) pyf = partition(gf, f, false); else pxf = partition(gf, f, true);
+        crates(gf, ri(1, 3), pxf, pyf);
       }
+      // escadas: em cada andar o poço k sobe, desce ou fica aberto, conforme o par de andares que liga
+      stairs.forEach((s, k) => {
+        for (let f = 0; f < b.floors; f++) {
+          let kind = K.FLOOR;
+          if (k === 0) kind = f % 2 === 0 ? (f + 1 < b.floors ? K.STAIRUP : K.FLOOR) : K.STAIRDN;
+          else kind = f % 2 === 1 ? (f + 1 < b.floors ? K.STAIRUP : K.FLOOR) : (f >= 2 ? K.STAIRDN : K.FLOOR);
+          for (const t of [idx(s.x, s.y), idx(s.x + 1, s.y)]) gridsF[f][t] = kind;
+        }
+        for (const dxy of [[-1, 0], [2, 0], [0, 1], [1, 1], [0, -1], [1, -1]]) {
+          const t = idx(s.x + dxy[0], s.y + dxy[1]);
+          for (let f = 0; f < b.floors; f++) if (gridsF[f][t] === K.PART) gridsF[f][t] = K.FLOOR;
+        }
+      });
     }
 
     // obstáculos externos
@@ -261,27 +283,27 @@ function genWorld(seed) {
     for (const p of [sp, ex]) for (let y = p.y - 2; y <= p.y + 2; y++) for (let x = p.x - 2; x <= p.x + 2; x++) { g0[idx(x, y)] = K.FLOOR; f0[idx(x, y)] = p === ex ? 1 : 2; }
 
     // alcançabilidade
-    const rc = new Uint8Array(2 * NT);
-    bfsNodes(g0, g1, bAt, bl, idx(sp.x, sp.y), -1, rc);
+    const rc = new Uint8Array(MAXF * NT);
+    bfsNodes(gridsF, bAt, bl, idx(sp.x, sp.y), -1, rc);
     if (!rc[idx(ex.x, ex.y)]) continue;
     const okB = bl.filter(b => { for (let y = b.y + 1; y < b.y + b.h - 1; y++) for (let x = b.x + 1; x < b.x + b.w - 1; x++) if (rc[idx(x, y)]) return true; return false; });
     if (okB.length < 6) continue;
-    return { g0, g1, f0, bAt, bl, dl, rc, sp, ex };
+    return { gf: gridsF, g0, g1, f0, bAt, bl, dl, rc, sp, ex };
   }
   // fallback: arena aberta
   const g0 = new Uint8Array(NT), g1 = new Uint8Array(NT), f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
   for (let x = 0; x < MW; x++) { g0[x] = 1; g0[(MH - 1) * MW + x] = 1; }
   for (let y = 0; y < MH; y++) { g0[y * MW] = 1; g0[y * MW + MW - 1] = 1; }
-  const rc = new Uint8Array(2 * NT), sp = { x: 4, y: MH - 5 }, ex = { x: MW - 5, y: 4 };
-  bfsNodes(g0, g1, bAt, [], sp.y * MW + sp.x, -1, rc);
-  return { g0, g1, f0, bAt, bl: [], dl: [], rc, sp, ex };
+  const gf = [g0, g1, new Uint8Array(NT), new Uint8Array(NT)];
+  const rc = new Uint8Array(MAXF * NT), sp = { x: 4, y: MH - 5 }, ex = { x: MW - 5, y: 4 };
+  bfsNodes(gf, bAt, [], sp.y * MW + sp.x, -1, rc);
+  return { gf, g0, g1, f0, bAt, bl: [], dl: [], rc, sp, ex };
 }
 
 /* =====================================================================
    DESENHO DO CENÁRIO (pré-renderizado)
    ===================================================================== */
-const in2F = (x, y) => { if (x < 0 || y < 0 || x >= MW || y >= MH) return false; const b = bldAt[y * MW + x]; return b >= 0 && blds[b].floors === 2; };
-const tileK = (x, y, fl) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 0 : fl ? (in2F(x, y) ? grid1[y * MW + x] : 0) : grid0[y * MW + x];
+const tileK = (x, y, fl) => (x < 0 || y < 0 || x >= MW || y >= MH) ? 0 : fl ? (hasFl(x, y, fl) ? gridF[fl][y * MW + x] : 0) : grid0[y * MW + x];
 const isWallK = k => k === K.WALL || k === K.BRICK || k === K.WOODW;
 const wallish = k => k === K.WALL || k === K.BRICK || k === K.WOODW || k === K.WINDOW || k === K.DOOR || k === K.PART || k === K.WINBROKEN || k === K.DOOROPEN;
 
@@ -369,18 +391,34 @@ function drawSolidTile(c, x, y, kind, fl) {
     c.fillStyle = '#4a9448'; c.beginPath(); c.arc(px + T / 2 + ox - 6, py + T / 2 + oy - 6, 6, 0, PI2); c.fill();
   } else if (kind === K.WINDOW || kind === K.WINBROKEN) {
     wallBase();
-    const gx = horiz ? px + 3 : px + 12, gy = horiz ? py + 12 : py + 3, gw = horiz ? T - 6 : 16, gh = horiz ? 16 : T - 6;
+    // janela grande: vários blocos seguidos formam um único vidro
+    const isW = k => k === K.WINDOW || k === K.WINBROKEN, at = d => horiz ? tileK(x + d, y, fl) : tileK(x, y + d, fl);
+    let ra = 0, rb = 0;
+    while (ra < 3 && isW(at(-ra - 1))) ra++;
+    while (rb < 3 && isW(at(rb + 1))) rb++;
+    const n = ra + rb + 1, pa = ra > 0, pb = rb > 0, m0 = pa ? 0 : 3, m1 = pb ? 0 : 3;
+    const gx = horiz ? px + m0 : px + 12, gy = horiz ? py + 12 : py + m0, gw = horiz ? T - m0 - m1 : 16, gh = horiz ? 16 : T - m0 - m1;
     if (kind === K.WINDOW) {
       c.fillStyle = '#7fb6d8'; c.fillRect(gx, gy, gw, gh);
-      c.fillStyle = 'rgba(255,255,255,.45)'; c.fillRect(gx + 2, gy + 2, horiz ? gw * .45 : 4, horiz ? 3 : gh * .45);
-      c.strokeStyle = '#2a2d31'; c.lineWidth = 2; c.strokeRect(gx, gy, gw, gh);
-      c.beginPath(); if (horiz) { c.moveTo(gx + gw / 2, gy); c.lineTo(gx + gw / 2, gy + gh); } else { c.moveTo(gx, gy + gh / 2); c.lineTo(gx + gw, gy + gh / 2); } c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.45)'; if (ra === 0) c.fillRect(gx + 2, gy + 2, horiz ? Math.max(6, gw * .45) : 4, horiz ? 3 : Math.max(6, gh * .45));
     } else {
       c.fillStyle = '#1b1f23'; c.fillRect(gx, gy, gw, gh);
       c.fillStyle = '#9fd0ea';
       for (let i = 0; i < 4; i++) { const sx = gx + hash(x + i, y) * gw, sy = gy + hash(x, y + i) * gh; c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + 5, sy + 2); c.lineTo(sx + 1, sy + 6); c.closePath(); c.fill(); }
-      c.strokeStyle = '#2a2d31'; c.lineWidth = 2; c.strokeRect(gx, gy, gw, gh);
     }
+    c.strokeStyle = '#2a2d31'; c.lineWidth = 2; c.beginPath();
+    if (horiz) {
+      c.moveTo(gx, gy); c.lineTo(gx + gw, gy); c.moveTo(gx, gy + gh); c.lineTo(gx + gw, gy + gh);
+      if (!pa) { c.moveTo(gx, gy); c.lineTo(gx, gy + gh); } if (!pb) { c.moveTo(gx + gw, gy); c.lineTo(gx + gw, gy + gh); }
+      if (n === 1 || (n === 3 && ra === 1)) { c.moveTo(gx + gw / 2, gy); c.lineTo(gx + gw / 2, gy + gh); }
+      if (n > 1) { c.moveTo(gx, gy + gh / 2); c.lineTo(gx + gw, gy + gh / 2); }
+    } else {
+      c.moveTo(gx, gy); c.lineTo(gx, gy + gh); c.moveTo(gx + gw, gy); c.lineTo(gx + gw, gy + gh);
+      if (!pa) { c.moveTo(gx, gy); c.lineTo(gx + gw, gy); } if (!pb) { c.moveTo(gx, gy + gh); c.lineTo(gx + gw, gy + gh); }
+      if (n === 1 || (n === 3 && ra === 1)) { c.moveTo(gx, gy + gh / 2); c.lineTo(gx + gw, gy + gh / 2); }
+      if (n > 1) { c.moveTo(gx + gw / 2, gy); c.lineTo(gx + gw / 2, gy + gh); }
+    }
+    c.stroke();
   } else if (kind === K.DOOR) {
     if (horiz) { c.fillStyle = '#8a5a2b'; c.fillRect(px + 1, py + 11, T - 2, 18); c.strokeStyle = '#4a2e12'; c.lineWidth = 2; c.strokeRect(px + 1, py + 11, T - 2, 18); c.fillStyle = '#e0c070'; c.beginPath(); c.arc(px + T - 8, py + T / 2, 2, 0, PI2); c.fill(); }
     else { c.fillStyle = '#8a5a2b'; c.fillRect(px + 11, py + 1, 18, T - 2); c.strokeStyle = '#4a2e12'; c.lineWidth = 2; c.strokeRect(px + 11, py + 1, 18, T - 2); c.fillStyle = '#e0c070'; c.beginPath(); c.arc(px + T / 2, py + T - 8, 2, 0, PI2); c.fill(); }
@@ -403,11 +441,12 @@ function drawSolidTile(c, x, y, kind, fl) {
 }
 
 function redrawRegion(x0, y0, x1, y1, fl) {
+  if (fl && fl !== mapUFloor) return;      // só o andar exibido fica desenhado
   x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(MW - 1, x1); y1 = Math.min(MH - 1, y1);
   const c = fl ? map1X : mapX;
   c.save(); c.beginPath(); c.rect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T); c.clip();
   if (fl) c.clearRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!fl || in2F(x, y)) drawFloorTile(c, x, y, fl);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (!fl || hasFl(x, y, fl)) drawFloorTile(c, x, y, fl);
   if (!fl) {
     c.fillStyle = 'rgba(0,0,0,.3)';
     for (let y = y0 - 1; y <= y1; y++) for (let x = x0 - 1; x <= x1; x++) { const k = tileK(x, y, 0); if (k === K.WALL || k === K.BRICK || k === K.WOODW || k === K.CRATE || k === K.PART) c.fillRect(x * T + 4, y * T + 5, T, T); }
@@ -415,6 +454,7 @@ function redrawRegion(x0, y0, x1, y1, fl) {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = tileK(x, y, fl); if (k) drawSolidTile(c, x, y, k, fl); }
   c.restore();
 }
+function setUpperFloor(f) { if (f === mapUFloor) return; mapUFloor = f; redrawRegion(0, 0, MW - 1, MH - 1, f); }
 function miniTile(x, y) {
   const k = grid0[y * MW + x], f = ftype[y * MW + x];
   miniStaticX.fillStyle = k === K.WALL ? '#a3a9b0' : k === K.BRICK ? '#a0614a' : k === K.WOODW ? '#a57a48' : k === K.CRATE ? '#b08a4a' : k === K.TREE ? '#1f5a26' : (k === K.WINDOW || k === K.WINBROKEN) ? '#7fb6d8' : k === K.DOOR || k === K.DOOROPEN ? '#8a5a2b' : k === K.PART ? '#8a867a' : (k === K.STAIRUP) ? '#ffd36a' : f === 1 ? '#5a5d56' : f === 2 ? '#5a4d34' : f === 3 ? '#7a5a38' : '#33452b';
@@ -454,19 +494,23 @@ function makeRoof(b, seed) {
 }
 
 function loadWorld(m) {
-  grid0 = m.g0; grid1 = m.g1; ftype = m.f0; bldAt = m.bAt; blds = m.bl; doors = m.dl; reachN = m.rc; spawnT = m.sp; extT = m.ex;
+  gridF = m.gf; grid0 = gridF[0]; grid1 = gridF[1]; ftype = m.f0; bldAt = m.bAt; blds = m.bl; doors = m.dl; reachN = m.rc; spawnT = m.sp; extT = m.ex;
+  layerBld = []; layerFloor = [];
+  blds.forEach(b => { b.layers = [-1]; });
+  blds.forEach((b, bi) => { for (let f = 1; f < b.floors; f++) { b.layers[f] = layerBld.length; layerBld.push(bi); layerFloor.push(f); } });
   blds.forEach((b, i) => makeRoof(b, 1000 + i * 17));
   mapC.width = map1C.width = Math.round(WORLD_W * R_MAP); mapC.height = map1C.height = Math.round(WORLD_H * R_MAP);
   mapX.setTransform(R_MAP, 0, 0, R_MAP, 0, 0); map1X.setTransform(R_MAP, 0, 0, R_MAP, 0, 0);
   redrawRegion(0, 0, MW - 1, MH - 1, 0);
-  if (blds.some(b => b.floors === 2)) redrawRegion(0, 0, MW - 1, MH - 1, 1);
+  mapUFloor = 1;
+  if (blds.some(b => b.floors > 1)) redrawRegion(0, 0, MW - 1, MH - 1, 1);
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) miniTile(x, y);
 }
 
 /* ---------- Mudanças dinâmicas ---------- */
-const setTile = (tx, ty, L, k) => { const i = ty * MW + tx; if (L >= 0 && bldAt[i] === L) grid1[i] = k; else grid0[i] = k; };
+const setTile = (tx, ty, L, k) => { const i = ty * MW + tx; if (L >= 0 && bldAt[i] === layerBld[L]) gridF[layerFloor[L]][i] = k; else grid0[i] = k; };
 function refreshTile(tx, ty, L) {
-  const fl = (L >= 0 && bldAt[ty * MW + tx] === L) ? 1 : 0;
+  const fl = (L >= 0 && bldAt[ty * MW + tx] === layerBld[L]) ? layerFloor[L] : 0;
   redrawRegion(tx - 1, ty - 1, tx + 1, ty + 1, fl);
   if (!fl) miniTile(tx, ty);
 }
@@ -477,14 +521,21 @@ function destroyCrate(tx, ty, L) {
   for (let i = 0; i < 10; i++) spawnPart({ x: tx * T + T / 2, y: ty * T + T / 2, vx: rand(-160, 160), vy: rand(-160, 160), life: rand(.4, .9), size: rand(2, 4), color: '#a97f40', drag: 3, kind: 'dot' });
   sfx('crate');
 }
+// uma janela grande (2 ou 3 blocos) quebra inteira
 function breakWindow(tx, ty, L) {
-  setTile(tx, ty, L, K.WINBROKEN); refreshTile(tx, ty, L);
-  for (let i = 0; i < 12; i++) spawnPart({ x: tx * T + T / 2, y: ty * T + T / 2, vx: rand(-200, 200), vy: rand(-200, 200), life: rand(.4, 1), size: rand(1, 2.5), color: '#bfe4f5', drag: 3, kind: 'spark', layer: 1 });
+  const stack = [[tx, ty]];
+  for (let n = 0; stack.length && n < 4;) {
+    const [x, y] = stack.pop();
+    if (kindF(x, y, L) !== K.WINDOW) continue;
+    setTile(x, y, L, K.WINBROKEN); refreshTile(x, y, L); n++;
+    for (let i = 0; i < 12; i++) spawnPart({ x: x * T + T / 2, y: y * T + T / 2, vx: rand(-200, 200), vy: rand(-200, 200), life: rand(.4, 1), size: rand(1, 2.5), color: '#bfe4f5', drag: 3, kind: 'spark', layer: 1 });
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
   sfx('glass');
 }
 function breakDoor(tx, ty, L) {
   setTile(tx, ty, L, K.DOOROPEN); refreshTile(tx, ty, L);
-  const i = ty * MW + tx; const d = doors.findIndex(q => q.idx === i && ((q.fl === 1) === (L >= 0 && bldAt[i] === L))); if (d >= 0) doors.splice(d, 1);
+  const i = ty * MW + tx; const d = doors.findIndex(q => q.idx === i && q.fl === (L >= 0 && bldAt[i] === layerBld[L] ? layerFloor[L] : 0)); if (d >= 0) doors.splice(d, 1);
   for (let k = 0; k < 8; k++) spawnPart({ x: tx * T + T / 2, y: ty * T + T / 2, vx: rand(-160, 160), vy: rand(-160, 160), life: rand(.4, .8), size: rand(2, 3.5), color: '#8a5a2b', drag: 3, kind: 'dot' });
   sfx('crate');
 }
@@ -493,20 +544,20 @@ function breakDoor(tx, ty, L) {
 function updateDoors(dt, ents) {
   for (const d of doors) {
     const tx = d.idx % MW, ty = (d.idx / MW) | 0, cx = tx * T + T / 2, cy = ty * T + T / 2;
-    const g = d.fl ? grid1 : grid0;
+    const g = gridF[d.fl];
     if (g[d.idx] !== K.DOOR && g[d.idx] !== K.DOOROPEN) continue;
     let near = false, inside = false;
     for (const e of ents) {
       if (e.dead || (e.bound)) continue;
-      if (((e.L >= 0) ? 1 : 0) !== d.fl || (d.fl && e.L !== bldAt[d.idx])) continue;
+      if (floorOfL(e.L) !== d.fl || (d.fl && layerBld[e.L] !== bldAt[d.idx])) continue;
       const ax = Math.abs(e.x - cx), ay = Math.abs(e.y - cy);
       if (ax < T / 2 + e.r + 14 && ay < T / 2 + e.r + 14) near = true;
       if (ax < T / 2 + e.r && ay < T / 2 + e.r) inside = true;
     }
-    if (near) { d.t = 0; if (g[d.idx] === K.DOOR) { g[d.idx] = K.DOOROPEN; refreshTile(tx, ty, d.fl ? bldAt[d.idx] : -1); sfx('door'); } }
+    if (near) { d.t = 0; if (g[d.idx] === K.DOOR) { g[d.idx] = K.DOOROPEN; refreshTile(tx, ty, d.fl ? layerOf(bldAt[d.idx], d.fl) : -1); sfx('door'); } }
     else if (g[d.idx] === K.DOOROPEN) {
       d.t += dt;
-      if (d.t > 2.2 && !inside) { g[d.idx] = K.DOOR; refreshTile(tx, ty, d.fl ? bldAt[d.idx] : -1); }
+      if (d.t > 2.2 && !inside) { g[d.idx] = K.DOOR; refreshTile(tx, ty, d.fl ? layerOf(bldAt[d.idx], d.fl) : -1); }
     }
   }
 }

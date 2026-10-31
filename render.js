@@ -280,7 +280,7 @@ function render() {
   c2.setTransform(S * dpr, 0, 0, S * dpr, -cx * S * dpr, -cy * S * dpr);
   c2.drawImage(mapC, 0, 0, mapC.width, mapC.height, 0, 0, WORLD_W, WORLD_H);
   if (p.L >= 0) {      // no 2º andar: mostra o piso de cima do prédio atual
-    const b = blds[p.L];
+    const b = blds[layerBld[p.L]]; setUpperFloor(floorOfL(p.L));
     c2.save(); c2.beginPath(); c2.rect(b.x * T, b.y * T, b.w * T, b.h * T); c2.clip();
     c2.drawImage(map1C, 0, 0, map1C.width, map1C.height, 0, 0, WORLD_W, WORLD_H); c2.restore();
   }
@@ -775,7 +775,7 @@ function drawMinimap() {
   m.fillStyle = '#8fdcff'; m.beginPath(); m.moveTo(5, 0); m.lineTo(-3, -3.5); m.lineTo(-3, 3.5); m.closePath(); m.fill(); m.restore();
   m.strokeStyle = 'rgba(255,255,255,.35)'; m.lineWidth = 1;
   m.strokeRect(cam.x / T * MINI_S, cam.y / T * MINI_S, vw / S / T * MINI_S, vh / S / T * MINI_S);
-  if (p.L >= 0) { m.fillStyle = 'rgba(255,211,106,.9)'; m.font = 'bold 9px sans-serif'; m.textAlign = 'left'; m.textBaseline = 'top'; m.fillText('2º ANDAR', 3, 3); }
+  if (p.L >= 0) { m.fillStyle = 'rgba(255,211,106,.9)'; m.font = 'bold 9px sans-serif'; m.textAlign = 'left'; m.textBaseline = 'top'; m.fillText((floorOfL(p.L) + 1) + 'º ANDAR', 3, 3); }
 }
 
 /* =====================================================================

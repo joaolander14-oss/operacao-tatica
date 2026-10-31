@@ -102,7 +102,7 @@ const sfx = (n, v) => { if (SFX[n]) SFX[n](v); };
    PARTÍCULAS, DECALQUES E EFEITOS
    ===================================================================== */
 // ver se algo na camada L deve aparecer para o jogador
-const layerShown = (L, x, y) => !player || L === player.L || (player.L >= 0 && L === -1 && bldIdxAt(x, y) !== player.L);
+const layerShown = (L, x, y) => !player || L === player.L || (player.L >= 0 && L === -1 && bldIdxAt(x, y) !== layerBld[player.L]);
 
 function spawnPart(o) {
   const p = { life: .5, size: 2, drag: 1, grow: 0, layer: 1, g: 0, rot: 0, vr: 0, color: '#fff', kind: 'dot', vx: 0, vy: 0, L: -2 };
@@ -314,10 +314,21 @@ const curSlot = () => player.slots[player.wi];
 const curW = () => { const s = curSlot(); return s ? s.w : null; };
 const poolOf = w => w.inf ? Infinity : (player.pool[w.cal] || 0);
 
+// tudo que está carregando: armas (nas mãos e nas costas), acessórios, munição, equipamento e suprimentos
+function playerKg(p) {
+  let kg = 0;
+  for (const sl of p.slots) if (sl) { kg += weaponKg(sl.id, LD.attach && LD.attach[sl.id]); if (!sl.w.melee && !sl.w.inf) kg += sl.mag * ammoKg(sl.cal); }
+  for (const c in p.pool) kg += p.pool[c] * ammoKg(c);
+  for (const s of ['head', 'body', 'legs', 'back', 'eyes']) { const gr = gearOf(s); if (gr) kg += gr.kg; }
+  kg += p.cons.grenade * .45 + p.cons.med * .5 + p.cons.repair * .6;
+  for (const k in p.thr) kg += p.thr[k] * .4;
+  for (const k in p.hl) kg += p.hl[k] * .15;
+  return kg;
+}
 function recalcPlayer() {
   const p = player;
   const legs = gearOf('legs'), back = gearOf('back'), eyes = gearOf('eyes'), head = gearOf('head'), body = gearOf('body');
-  p.speedMul = 1 + (legs ? legs.spd : 0) - (head ? head.w : 0) - (body ? body.w : 0);
+  p.speedMul = 1 + (legs ? legs.spd : 0);
   p.capMul = back ? back.capMul : 1;
   p.consBonus = back ? back.cons : 0;
   p.consCap = 4 + 2 * p.consBonus;
@@ -368,7 +379,7 @@ function newPlayer() {
   const p = {
     x: spawnT.x * T + T / 2, y: spawnT.y * T + T / 2, r: 11, ang: -Math.PI / 4, L: -1,
     hp: 100, maxHp: 100, parts: makeParts(100), wi: 0, slots: [null, null, null], pool: {}, cons: { med: 2, grenade: 2, repair: 1 }, thr: { flash: 1, smoke: 1, molotov: 1, flare: 1, mine: 1 }, thrSel: 'frag',
-    equipT: 0, healing: null, healSel: 'medkit', hl: { bandage: 2, painkiller: 1, adrenaline: 1, splint: 1, surgery: 0 }, regen: 0, adr: 0,
+    kg: 0, wMul: 1, loadT: 0, equipT: 0, healing: null, healSel: 'medkit', hl: { bandage: 2, painkiller: 1, adrenaline: 1, splint: 1, surgery: 0 }, regen: 0, adr: 0,
     armor: { head: null, body: null }, durMap: {}, cool: 0, reloading: false, reloadT: 0, flash: 0, recoil: 0,
     walk: 0, moving: false, dead: false, speed: 185 * PACE.player, gCd: 0, mCd: 0, speedMul: 1, capMul: 1, consBonus: 0, consCap: 4,
     visMode: null, eyeVis: 0, eyeThermal: 0,
@@ -772,8 +783,10 @@ function updateStairs(p, dt) {
   const tx = Math.floor(p.x / T), ty = Math.floor(p.y / T), k = kindF(tx, ty, p.L);
   if (k !== K.STAIRUP && k !== K.STAIRDN) return;
   if (Math.hypot(p.x - (tx * T + T / 2), p.y - (ty * T + T / 2)) > 15) return;
-  if (k === K.STAIRUP && p.L < 0) { p.L = bldAt[ty * MW + tx]; p.stairCd = .9; sfx('stairs'); banner('2º ANDAR'); }
-  else if (k === K.STAIRDN && p.L >= 0) { p.L = -1; p.stairCd = .9; sfx('stairs'); banner('TÉRREO'); }
+  const bi = bldAt[ty * MW + tx], f = floorOfL(p.L);
+  if (bi < 0) return;
+  if (k === K.STAIRUP && f + 1 < blds[bi].floors) { p.L = layerOf(bi, f + 1); p.stairCd = .9; sfx('stairs'); banner((f + 2) + 'º ANDAR'); }
+  else if (k === K.STAIRDN && f > 0) { p.L = layerOf(bi, f - 1); p.stairCd = .9; sfx('stairs'); banner(f === 1 ? 'TÉRREO' : f + 'º ANDAR'); }
 }
 
 function updatePlayer(dt) {
@@ -797,7 +810,9 @@ function updatePlayer(dt) {
   if (ml > 1) { mx /= ml; my /= ml; ml = 1; }
   const w = curW();
   p.walking = !touchMode && (k.has('ShiftLeft') || k.has('ShiftRight'));
-  let sp = p.speed * (w ? w.speedMod : 1) * p.speedMul * (p.walking ? .55 : 1) * p.fx.speed;
+  p.loadT -= dt;
+  if (p.loadT <= 0) { p.loadT = .25; p.kg = playerKg(p); p.wMul = loadMul(p.kg); }
+  let sp = p.speed * p.wMul * p.speedMul * (p.walking ? .55 : 1) * p.fx.speed;
   if (w && w.spin && p.spin > .3) sp *= .6;
   if (p.adr > 0) sp *= 1.25;
   if (p.healing) sp *= .6;
@@ -1112,9 +1127,9 @@ function pathTo(e, x, y, L) {
 }
 function followPath(e, speed, dt) {
   if (!e.path || e.pi >= e.path.length) return false;
-  const n = e.path[e.pi], nfl = n >= NT ? 1 : 0, ni = n - nfl * NT;
-  const cfl = e.L >= 0 ? 1 : 0;
-  if (nfl !== cfl) { e.L = nfl ? bldAt[ni] : -1; e.stairCd = .9; }
+  const n = e.path[e.pi], nfl = (n / NT) | 0, ni = n - nfl * NT;
+  const cfl = floorOfL(e.L);
+  if (nfl !== cfl) { e.L = nfl ? layerOf(bldAt[ni], nfl) : -1; e.stairCd = .9; }
   const tx = (ni % MW) * T + T / 2, ty = ((ni / MW) | 0) * T + T / 2;
   const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy);
   if (d < 7) { e.pi++; return e.pi < e.path.length; }
@@ -1144,7 +1159,7 @@ function makeNoise(x, y, radius) {
 function patrolTo(e) {
   if (e.mpId != null && mpBotPatrol(e)) return;
   if (e.mpId != null && Math.random() < .65) { const hs = mpHumans().filter(h => !(mpTdm() && mpTargetTeam(h) === e.team)); if (hs.length) { const h = hs[(Math.random() * hs.length) | 0]; e.home = { x: h.x + rand(-140, 140), y: h.y + rand(-140, 140) }; } }
-  const fl = e.L >= 0 ? 1 : 0;
+  const fl = floorOfL(e.L);
   for (let i = 0; i < 10; i++) {
     const tx = Math.floor(e.home.x / T) + Math.round(rand(-8, 8)), ty = Math.floor(e.home.y / T) + Math.round(rand(-8, 8));
     if (tx < 1 || ty < 1 || tx >= MW - 1 || ty >= MH - 1 || !reachN[fl * NT + ty * MW + tx]) continue;
@@ -1358,7 +1373,7 @@ function updateBullets(dt) {
     for (let s = 0; s < n && alive; s++) {
       b.x += b.dx * sd; b.y += b.dy * sd; b.dist += sd;
       const tx = Math.floor(b.x / T), ty = Math.floor(b.y / T);
-      if (b.L >= 0 && bldAt[ty * MW + tx] !== b.L) b.L = -1;
+      if (b.L >= 0 && bldAt[ty * MW + tx] !== layerBld[b.L]) b.L = -1;
       if (tx !== b.tx || ty !== b.ty) { b.tx = tx; b.ty = ty; if (!bulletTile(b, tx, ty)) { alive = false; break; } }
       if (b.from === 'p') {
         for (const e of enemies) {
@@ -1604,7 +1619,7 @@ function startMission(mode, level, custom) {
     for (let y = b.y + 1; y < b.y + b.h - 1; y++) for (let x = b.x + 1; x < b.x + b.w - 1; x++) {
       const i = y * MW + x;
       if (reachN[i] && grid0[i] === 0) g.push({ x, y });
-      if (b.floors === 2 && reachN[NT + i] && grid1[i] === 0) u.push({ x, y });
+      for (let f = 1; f < b.floors; f++) if (reachN[f * NT + i] && gridF[f][i] === 0) u.push({ x, y, L: b.layers[f] });
     }
     if (g.length >= 6 && far(g[0], 12)) BSPOTS.push({ bi, g, u });
   });
@@ -1620,10 +1635,10 @@ function startMission(mode, level, custom) {
     return rnd(list);
   };
   const nearL = (s, r, L) => {
-    const fl = L >= 0 ? 1 : 0, gg = fl ? grid1 : grid0;
+    const fl = floorOfL(L), gg = gridF[fl];
     for (let i = 0; i < 30; i++) {
       const x = s.x + Math.round(rand(-r, r)), y = s.y + Math.round(rand(-r, r));
-      if (x > 0 && y > 0 && x < MW - 1 && y < MH - 1 && reachN[fl * NT + y * MW + x] && gg[y * MW + x] === 0 && (!fl || bldAt[y * MW + x] === L)) return { x, y };
+      if (x > 0 && y > 0 && x < MW - 1 && y < MH - 1 && reachN[fl * NT + y * MW + x] && gg[y * MW + x] === 0 && (!fl || bldAt[y * MW + x] === layerBld[L])) return { x, y };
     }
     return s;
   };
@@ -1638,7 +1653,7 @@ function startMission(mode, level, custom) {
       const inside = BSPOTS.length && Math.random() < .6;
       if (inside) {
         const bsp = rnd(BSPOTS), up = bsp.u.length >= 4 && Math.random() < .4;
-        const s = rnd(up ? bsp.u : bsp.g); placed.push(s); addE(rollKey(), s, up ? bsp.bi : -1);
+        const s = rnd(up ? bsp.u : bsp.g); placed.push(s); addE(rollKey(), s, up ? s.L : -1);
       } else { const s = pickSpot(SPOTS, 15, placed); placed.push(s); addE(rollKey(), s, -1); }
     }
   };
@@ -1646,7 +1661,8 @@ function startMission(mode, level, custom) {
   const poi = (i, wantUp) => {
     if (!BSPOTS.length) return { s: pickSpot(SPOTS, 14, []), L: -1 };
     const bsp = BSPOTS[i % BSPOTS.length], up = wantUp && bsp.u.length >= 4;
-    return { s: rnd(up ? bsp.u : bsp.g), L: up ? bsp.bi : -1 };
+    const s = rnd(up ? bsp.u : bsp.g);
+    return { s, L: up ? s.L : -1 };
   };
 
   switch (mode) {

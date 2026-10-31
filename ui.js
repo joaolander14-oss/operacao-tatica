@@ -77,7 +77,8 @@ function updateHUD() {
   setText('timer', fmtTime(G.time));
   setText('objText', objectiveText());
   $('objText').classList.toggle('done', G.extractOpen);
-  setText('floorTag', (p.L >= 0 ? '2º ANDAR' : 'TÉRREO') + (G.night ? ' · 🌙' : ''));
+  setText('loadTag', '⚖ ' + p.kg.toFixed(1) + ' kg · ' + Math.round(p.wMul * p.speedMul * 100) + '%');
+  setText('floorTag', (p.L >= 0 ? (floorOfL(p.L) + 1) + 'º ANDAR' : 'TÉRREO') + (G.night ? ' · 🌙' : ''));
   $('bleedTag').classList.toggle('hidden', !(p.bleed > 0));
 
   // silhueta de dano (verde → amarelo → laranja → vermelho → preto)
@@ -179,7 +180,7 @@ function closeInventory() {
 
 const bar = (v, max) => `<span class="sbar"><i style="width:${clamp(v / max * 100, 3, 100)}%"></i></span>`;
 function weaponTags(w) {
-  const t = [];
+  const t = ['⚖ ' + w.kg + ' kg'];
   if (w.inf) t.push('Munição ∞');
   if (w.melee) { if (w.sweep) t.push('Golpe em arco'); if (w.stun) t.push('Atordoa'); if (w.knock) t.push('Empurra'); if (w.breaks) t.push('Quebra obstáculos'); t.push('Pelas costas ×' + w.back); if (w.noise <= 40) t.push('Silenciosa'); return t; }
   if (w.burst) t.push('Rajada ×' + w.burst);
@@ -282,6 +283,7 @@ function customHtml(id) {
   return h + '</div></div>';
 }
 
+function loadInfo() { const kg = invCtx === 'mission' && player ? playerKg(player) : loadoutKg(LD); return { kg, mul: loadMul(kg) }; }
 function weaponGroups() { const g = []; for (const w of WEAPONS) if (!g.includes(w.grp)) g.push(w.grp); return g; }
 
 function renderArsenal() {
@@ -297,6 +299,7 @@ function renderArsenal() {
       const id = LD.weapons[i], w = id && WMAP[id];
       return `<div class="loadslot${w ? '' : ' empty'}"><span class="key">${i + 1}</span><small>${label}</small>${w ? `<canvas width="96" height="34" data-wid="${id}"></canvas><b>${w.name}</b>` : '<b>vazio</b>'}${w && w.att ? `<button class="ghost sm" data-act="custom" data-id="${id}">🔧</button>` : ''}${w ? `<button class="ghost sm" data-act="clearslot" data-i="${i}">remover</button>` : ''}</div>`;
     };
+    { const li = loadInfo(); html += `<div class="asum">⚖ Carga ${invCtx === 'mission' ? 'atual' : 'inicial'}: <b>${li.kg.toFixed(1)} kg</b> (armas, acessórios, munição, proteção e suprimentos) · velocidade <b>${Math.round(li.mul * 100)}%</b>. O peso de tudo que você carrega conta, não só da arma na mão: armas leves quase não atrapalham; metralhadoras e armas pesadas reduzem bastante.</div>`; }
     html += '<div class="aslots two">' + slotBox(0, 'PRIMÁRIA') + slotBox(1, 'SECUNDÁRIA') + slotBox(2, 'CORPO A CORPO') + '</div>';
     html += '<div class="chips cats">' + ['Todas', ...weaponGroups()].map(g => `<button data-cat="${g}" class="${ars.cat === g ? 'on' : ''}">${g}</button>`).join('') + '</div>';
     const list = WEAPONS.filter(w => ars.cat === 'Todas' || w.grp === ars.cat);
@@ -311,8 +314,8 @@ function renderArsenal() {
       return `<button class="aslot${ars.gslot === s ? ' sel' : ''}" data-gslot="${s}"><span class="gi2">${GEAR_ICON[s]}</span><small>${SLOT_NAMES[s]}: ${g ? g.name : '—'}</small></button>`;
     }).join('') + `<button class="ghost sm" data-act="cleargear">Remover ${SLOT_NAMES[ars.gslot].toLowerCase()}</button></div>`;
     const head = gearOf('head'), body = gearOf('body'), legs = gearOf('legs'), back = gearOf('back');
-    const wt = (head ? head.w : 0) + (body ? body.w : 0), sp = Math.round((1 + (legs ? legs.spd : 0) - wt) * 100);
-    html += `<div class="asum">Absorção: capacete <b>${head ? Math.round(head.abs * 100) : 0}%</b> · colete <b>${body ? Math.round(body.abs * 100) : 0}%</b> · Velocidade <b>${sp}%</b> · Munição <b>x${back ? back.capMul : 1}</b>. O capacete protege a cabeça; o colete, o tronco e (metade) os braços. As pernas ficam expostas.</div>`;
+    const li = loadInfo(), sp = Math.round(li.mul * (1 + (legs ? legs.spd : 0)) * 100);
+    html += `<div class="asum">Absorção: capacete <b>${head ? Math.round(head.abs * 100) : 0}%</b> · colete <b>${body ? Math.round(body.abs * 100) : 0}%</b> · Peso <b>${li.kg.toFixed(1)} kg</b> · Velocidade <b>${sp}%</b> · Munição <b>x${back ? back.capMul : 1}</b>. O capacete protege a cabeça; o colete, o tronco e (metade) os braços. As pernas ficam expostas.</div>`;
     html += '<div class="agrid">' + GEAR.filter(g => g.slot === ars.gslot).map(gearCard).join('') + '</div>';
   } else if (ars.tab === 'partners') {
     html += `<div class="asum">Esquadrão: <b>${LD.squad.length}/${MAX_SQUAD}</b>${base ? '' : ' — altere o esquadrão antes da missão'}. Parceiros seguem você, atacam inimigos visíveis e podem ser mandados ficar parados (tecla C).</div>`;

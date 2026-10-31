@@ -368,3 +368,5 @@ body.touch #cons button{width:40px;height:40px}
 .slot.equipping{opacity:.65;animation:eqp .5s ease-in-out infinite alternate}
 @keyframes eqp{from{filter:brightness(1)}to{filter:brightness(1.6)}}
 #btnMed.hold{background:rgba(111,224,122,.35)}
+
+#loadTag{font-size:11px;color:#cfd8c8;margin-top:2px;opacity:.9}

@@ -21,6 +21,7 @@ const MP_BOT_POOL = {
 };
 const MP_BOT_LABEL = { mix: 'Variados', basic: 'Básicos', elite: 'Elite', sniper: 'Só snipers', shotgun: 'Escopeteiros e invasores' };
 const MP_BOT_MAX = 8, MP_TOTAL_MAX = 12;
+const mpLmax = () => Math.max(-1, layerBld.length - 1);
 const mpNum = (v, d = 0) => (typeof v === 'number' && isFinite(v)) ? v : d;
 const mpR = v => Math.round(v * 10) / 10;
 const mpEsc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -246,7 +247,7 @@ function mpOnState(m) {
   const rid = (m.b != null && m.f === 0) ? m.b | 0 : m.f;
   if (!MP.players.get(rid)) return;
   const r = mpRemote(rid);
-  r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
+  r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
   if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; }
   r.hl = !!m.hl; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
   if (m.fl) r.fl = .06;
@@ -274,7 +275,7 @@ function mpOnShots(m, pl) {
     const w = WMAP[q.id]; if (!w) continue;
     const b = {
       x: mpNum(q.x), y: mpNum(q.y), dx: clamp(mpNum(q.dx), -1, 1), dy: clamp(mpNum(q.dy), -1, 1), speed: clamp(mpNum(q.s, 1000), 100, 4000), dmg: clamp(mpNum(q.d, 10), 0, 250),
-      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: own, friend, L: clamp(mpNum(q.L, -1) | 0, -1, Math.max(-1, blds.length - 1)), id: q.id, pw: clamp(mpNum(q.pw), 0, 20),
+      range: clamp(mpNum(q.r, 600), 50, 3000), dist: 0, from: 'n', owner: own, friend, L: clamp(mpNum(q.L, -1) | 0, -1, mpLmax()), id: q.id, pw: clamp(mpNum(q.pw), 0, 20),
       rocket: !!q.ro, radius: clamp(mpNum(q.rad), 0, 200), breaks: !!q.br, sup: !!q.sp, flame: !!q.fl, inc: !!q.i, stunS: 0, fragR: clamp(mpNum(q.fr), 0, 200), tx: -1, ty: -1, col: typeof q.c === 'string' ? q.c.slice(0, 16) : '#ff7a50', hit: null,
     };
     if (b.rocket && (!w.rocket)) b.rocket = false;
@@ -385,7 +386,7 @@ function mpSendThrow(g, mine, bot) {
 }
 function mpOnThrow(m) {
   const own = (m.o != null && m.f === 0) ? m.o | 0 : m.f;
-  const L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
+  const L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
   if (m.k === 'mine') { mines.push({ x: mpNum(m.x), y: mpNum(m.y), L, ang: mpNum(m.a), arm: 1.5, owner: own }); return; }
   if (!TMAP[m.k]) return;
   grenades.push({ x: mpNum(m.x), y: mpNum(m.y), vx: clamp(mpNum(m.vx), -1200, 1200), vy: clamp(mpNum(m.vy), -1200, 1200), t: clamp(mpNum(m.tt, 2), .1, 6), kind: m.k, L, owner: own });
@@ -433,7 +434,7 @@ function mpOnDead(m, vic) {
     const r = MP.remotes.get(vic.id);
     if (r) { r.dead = true; r.pr = false; }
     if (vic.bot && MP.isHost) { mpCheckWin(); return; }
-    const x = mpNum(m.x), y = mpNum(m.y), L = clamp(mpNum(m.L, -1) | 0, -1, Math.max(-1, blds.length - 1));
+    const x = mpNum(m.x), y = mpNum(m.y), L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
     addDecal({ k: 'corpse', x, y, ang: mpNum(m.a), who: 'player', L });
     addDecal({ k: 'pool', x, y, r: 6, max: 20, a: .8, L });
     bloodBurst(x, y, mpNum(m.a), 14, L, true);
