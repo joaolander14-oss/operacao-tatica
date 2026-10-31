@@ -7,7 +7,7 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
-const MP_VER = 19;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER = 20;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
 const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [

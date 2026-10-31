@@ -295,7 +295,7 @@ function explode(x, y, radius, dmg, L) {
     if (isPlayer && MP.on) mpNoteHit(G.src);
     let f = 1 - d / (radius + t.r);
     if (t.L !== L) f *= .35; else if (!hasLOS(x, y, t.x, t.y, L)) f *= .35;
-    blastHit(t, dmg * (.25 + .75 * f) * (isPlayer ? .5 : 1), Math.atan2(t.y - y, t.x - x));
+    blastHit(t, dmg * (.25 + .75 * f) * (isPlayer ? .5 * (t.blastMul || 1) : 1), Math.atan2(t.y - y, t.x - x));
   };
   if (!G.eSide) for (const e of enemies) if (!e.dead && !(MP.on && e.mpId != null && (G.src != null ? !mpHostile(G.src, e.mpId) : mpFriend(e.mpId)))) { if (e.mpId != null) e.lastW = 'boom'; blast(e, false); }
   for (const a of allies) { if (a.dead || a.bound) continue; const d = Math.hypot(a.x - x, a.y - y); if (d < radius + a.r) damageAlly(a, dmg * .5 * (1 - d / (radius + a.r)), Math.atan2(a.y - y, a.x - x)); }
@@ -322,28 +322,43 @@ function explode(x, y, radius, dmg, L) {
 function makeParts(maxHp) {
   const parts = {};
   for (const k of PARTS) { const m = maxHp * PART_HP[k]; parts[k] = { hp: m, max: m }; }
+  parts.org = {};
+  for (const k in ORGANS) parts.org[k] = { hp: 100 };
   return parts;
 }
 const pState = (t, k) => stateOf(t.parts[k].hp / t.parts[k].max);
 const vitalHp = t => Math.max(0, Math.min(t.parts.head.hp / t.parts.head.max, t.parts.torso.hp / t.parts.torso.max) * t.maxHp);
 
-// efeitos dos ferimentos: mira, velocidade, sangramento
+// sangramento de cada órgão por estado (1 lesionado, 2 grave, 3 destruído)
+const ORG_BLEED = { heart: [0, .4, 1, 2], liver: [0, .6, 1.4, 2.2], kidneys: [0, .3, .8, 1.4], stomach: [0, .2, .6, 1.1], lungs: [0, .2, .5, 1], face: [0, .2, .4, .6], eyes: [0, .1, .2, .3], ribs: [0, 0, .2, .5], v: [0, .5, 1.1, 1.8], m: [0, .1, .25, .45] };
+// efeitos dos ferimentos: mira, velocidade, sangramento, órgãos e ossos
 function recalcFx(t) {
-  const s = k => pState(t, k);
+  const s = k => pState(t, k), O = t.parts.org, os = k => O ? orgState(O[k].hp) : 0;
   const lm = k => [1, 1, .85, .6, .3][s(k)];
-  const legAvg = (lm('legL') + lm('legR')) / 2;
+  const legM = d => lm('leg' + d) * [1, .92, .55, .3][os('leg' + d + 'b')] * [1, .97, .85, .7][os('leg' + d + 'm')];
+  let sp = Math.min((legM('L') + legM('R')) / 2, Math.min(legM('L'), legM('R')) + .35);
+  sp *= [1, .93, .78, .6][os('lungs')] * [1, 1, .9, .9][os('heart')] * [1, .93, .93, .85][os('ribs')] * [1, .92, .6, .6][os('spine')] * [1, 1, .92, .85][os('kidneys')];
+  let pain = O ? os('kidneys') * .006 + os('face') * .004 : 0;
+  if (O) for (const k in O) if (ORGANS[k].bone && os(k) >= 2) pain += .008 * (os(k) - 1);
+  if (t.numb > 0) pain *= .3;
+  const armBone = os('armLb') >= 2 || os('armRb') >= 2, armBad = (os('armLb') >= 2) + (os('armRb') >= 2) + (os('armLm') >= 2) + (os('armRm') >= 2);
   t.fx = {
-    aim: (s('armL') + s('armR')) * .012 + (s('head') >= 2 ? .02 : 0),
+    aim: (s('armL') + s('armR')) * .012 + (s('head') >= 2 ? .02 : 0) + pain + [0, .006, .02, .03][os('lungs')] + [0, .02, .04, .05][os('brain')] + (os('armLb') >= 2 ? .02 * (os('armLb') - 1) : 0) + (os('armRb') >= 2 ? .02 * (os('armRb') - 1) : 0),
     armsDead: s('armL') === 4 && s('armR') === 4,
-    oneArm: s('armL') === 4 || s('armR') === 4,
-    speed: Math.min(legAvg, Math.min(lm('legL'), lm('legR')) + .35),
-    crawl: s('legL') === 4 && s('legR') === 4,
+    oneArm: s('armL') === 4 || s('armR') === 4 || os('armLb') === 3 || os('armRb') === 3,
+    speed: Math.max(.2, sp),
+    crawl: (s('legL') === 4 && s('legR') === 4) || os('spine') === 3,
+    reloadMul: 1 + armBad * .1 + (armBone ? .1 : 0),
+    vis: [1, .85, .62, .4][os('eyes')],
+    dizzy: [0, .12, .4, .6][os('brain')] + (os('skull') >= 2 ? .15 : 0),
+    cough: os('lungs') >= 2,
   };
   let bl = 0;
   if (s('torso') >= 2) bl += 1.6 * (s('torso') - 1);
   if (s('head') >= 3) bl += 1.5;
   for (const k of ['armL', 'armR', 'legL', 'legR']) if (s(k) >= 2) bl += .7 * (s(k) - 1);
-  t.bleed = bl;
+  if (O) for (const k in O) { const st = os(k); if (!st) continue; const tb = ORG_BLEED[k] || (k.endsWith('v') ? ORG_BLEED.v : k.endsWith('m') ? ORG_BLEED.m : null); if (tb) bl += tb[st]; }
+  t.bleed = Math.min(7, bl);
   t.hp = vitalHp(t);
 }
 function healAll(t, frac) {
@@ -352,7 +367,52 @@ function healAll(t, frac) {
     if (P.hp <= 0) { if (k === 'head' || k === 'torso') continue; P.hp = P.max * .18; }
     P.hp = Math.min(P.max, P.hp + P.max * frac);
   }
+  if (t.parts.org) {
+    for (const k in t.parts.org) { const c = t.parts.org[k]; if (c.hp <= 0 && (k === 'brain' || k === 'heart')) continue; c.hp = Math.min(100, c.hp + frac * 70 + (c.hp <= 0 ? 8 : 0)); }
+    if (t.arrest > 0 && t.parts.org.heart.hp > 0) t.arrest = 0;
+  }
   recalcFx(t);
+}
+// protege rosto/olhos/pernas conforme o equipamento
+function protOf(t) {
+  let h, e, l;
+  if (t === player) { h = gearOf('head'); e = gearOf('eyes'); l = gearOf('legs'); }
+  else { const q = t.eq || {}; h = q.head && GMAP[q.head]; e = q.eyes && GMAP[q.eyes]; l = q.legs && GMAP[q.legs]; }
+  return { face: !!(h && h.face), eye: !!(e && e.protEye), legAbs: (l && l.legAbs) || 0 };
+}
+function organNotice(t, key, st) {
+  const def = ORGANS[key];
+  if (t !== player && st < 2) return;
+  addText(t.x, t.y - t.r - 34, def.name.toUpperCase() + ': ' + (def.bone ? ORG_STATE_NAME_BONE : ORG_STATE_NAME)[st].toUpperCase(), ORG_COL[st], 11);
+  if (t === player && st >= 2) { G.hurtFlash = Math.min(1, G.hurtFlash + .35); shake(4); }
+}
+// escolhe o órgão/osso atingido dentro da parte; retorna true se o golpe foi fatal (cérebro destruído)
+function hitOrgans(t, part, d, o) {
+  const O = t.parts.org, list = ORG_BY_PART[part];
+  if (!O || !list) return false;
+  const pr = protOf(t), sc = Math.min(1, 100 / Math.max(40, t.maxHp)), pen = o.pen || 0;
+  const n = pen >= 2.5 && Math.random() < .4 ? 2 : 1;
+  let dead = false;
+  for (let i = 0; i < n; i++) {
+    let tot = 0;
+    const ws = list.map(k => { let w = ORGANS[k].w; if (k === 'eyes' && pr.eye) w *= .15; if ((k === 'eyes' || k === 'face') && pr.face) w *= .2; tot += w; return w; });
+    let r = Math.random() * tot, key = list[0];
+    for (let j = 0; j < list.length; j++) { r -= ws[j]; if (r <= 0) { key = list[j]; break; } }
+    const c = O[key];
+    let dm = d * ORGANS[key].m * sc * (.5 + Math.min(1, pen / 4) * .7) * (i ? .6 : 1);
+    if (part === 'legL' || part === 'legR') dm *= 1 - pr.legAbs;
+    if (dm < 2) continue;
+    const before = orgState(c.hp);
+    c.hp = Math.max(0, c.hp - dm);
+    const after = orgState(c.hp);
+    if (after > before) {
+      organNotice(t, key, after);
+      if (key === 'brain' && after === 3) dead = true;
+      if (key === 'heart' && after === 3 && !(t.arrest > 0)) t.arrest = 7;
+      if ((key === 'skull' || key === 'brain') && after >= 2) { if (t === player) t.conc = Math.max(t.conc || 0, 2.5); else t.stun = Math.max(t.stun || 0, 1.6); }
+    }
+  }
+  return dead;
 }
 
 // onde a bala acertou (referencial do alvo: laterais = braços; resto sorteado)
@@ -373,7 +433,7 @@ function rollMeleePart() {
 function armorAbsorb(t, part, dmg, pen) {
   if (t === player) {
     const slot = part === 'head' ? 'head' : (part === 'torso' || part === 'armL' || part === 'armR') ? 'body' : null;
-    if (!slot) return dmg;
+    if (!slot) { const lg = (part === 'legL' || part === 'legR') && gearOf('legs'); return lg && lg.legAbs ? dmg * (1 - lg.legAbs) : dmg; }
     const a = t.armor[slot];
     if (!a || a.dur <= 0) return dmg;
     const def = GMAP[a.id];
@@ -385,6 +445,7 @@ function armorAbsorb(t, part, dmg, pen) {
     return dmg - take;
   }
   const ty = t.ty;
+  if ((part === 'legL' || part === 'legR') && ty.legAbs) return dmg * (1 - ty.legAbs);
   let abs = part === 'head' ? ty.helm : part === 'torso' ? ty.armor : (part === 'armL' || part === 'armR') ? ty.armor * .5 : 0;
   if (abs > 0) {
     if (pen >= ty.cls) abs *= clamp(1 - (pen - ty.cls) * .3, .25, 1);
@@ -408,6 +469,7 @@ function applyHit(t, part, dmg, o) {
   if (P.hp < 0) { const over = -P.hp; P.hp = 0; if (part !== 'head' && part !== 'torso') t.parts.torso.hp -= over * .35; }
   const after = stateOf(P.hp / P.max);
   t.showT = 3; t.lastPart = part;
+  const orgDead = hitOrgans(t, part, d, o);
   recalcFx(t);
   { const ha = o.ang || 0, force = d * .6 + (o.pen || 0) * 14; t.lastAng = ha; t.lastForce = force; if (t === player) { G.lastAng = ha; G.lastForce = force; } if (d > 6) bloodWall(t.x, t.y, ha, t.L, d, part === 'head'); }
 
@@ -419,8 +481,8 @@ function applyHit(t, part, dmg, o) {
     addText(t.x, t.y - t.r - 18, PART_LBL[part] + ' ' + STATE_NAME[after].toUpperCase(), STATE_COL[after], 11);
     if (after === 4 && part !== 'head' && part !== 'torso') bloodBurst(t.x, t.y, rand(0, PI2), 14, t.L, true);
   }
-  if (t.parts.head.hp <= 0 || t.parts.torso.hp <= 0) {
-    if (t === player) die(ang); else killEnemy(t, ang, part);
+  if (t.parts.head.hp <= 0 || t.parts.torso.hp <= 0 || orgDead) {
+    if (t === player) die(ang); else killEnemy(t, ang, orgDead ? 'head' : part);
     return true;
   }
   if (t === player) { G.hurtFlash = Math.min(1, G.hurtFlash + d / 28); shake(2.5); sfx('hurt'); }
@@ -434,6 +496,10 @@ function blastHit(t, dmg, ang) {
   if (Math.random() < .25) applyHit(t, 'head', dmg * .2, o);
 }
 function bleedTick(t, dt) {
+  if (t.arrest > 0 && !t.dead) {
+    t.arrest -= dt;
+    if (t.arrest <= 0) { t.arrest = 0; if (t === player) die(0); else killEnemy(t, 0, 'torso'); return; }
+  }
   if (t.bleed > 0 && !t.dead) {
     t.parts.torso.hp -= t.bleed * dt * (t.maxHp / 100) * .55;
     if (Math.random() < dt * 2.2 * Math.min(3, t.bleed)) addDecal({ k: 'blood', x: t.x + rand(-4, 4), y: t.y + rand(-4, 4), r: rand(1.5, 3.5), a: .65, L: t.L });
@@ -468,11 +534,14 @@ function recalcPlayer() {
   const legs = gearOf('legs'), back = gearOf('back'), eyes = gearOf('eyes'), head = gearOf('head'), body = gearOf('body');
   p.speedMul = 1 + (legs ? legs.spd : 0);
   p.capMul = back ? back.capMul : 1;
-  p.consBonus = back ? back.cons : 0;
+  p.consBonus = (back ? back.cons : 0) + (body && body.cons || 0);
   p.consCap = 4 + 2 * p.consBonus;
   p.visMode = eyes && eyes.mode || null;
   p.eyeVis = eyes && eyes.vis || 0;
   p.eyeThermal = eyes && eyes.thermal || 0;
+  p.eyeZoom = eyes && eyes.zoom || 0;
+  p.flashRes = eyes && eyes.flashRes || 0;
+  p.blastMul = (1 - (head && head.blast || 0) * .35) * (1 - (body && body.blast || 0));
   if (!p.visMode) G.visOn = false;
   for (const cal in p.pool) p.pool[cal] = Math.min(p.pool[cal], ammoCap(cal));
   for (const k in p.cons) p.cons[k] = Math.min(p.cons[k], p.consCap);
@@ -480,10 +549,11 @@ function recalcPlayer() {
 // alcance de visão efetivo (à noite, sem visão noturna, enxerga pouco)
 function visRadius() {
   const p = player;
-  if (G.visOn && p.visMode) return BASE_VIS + p.eyeVis;
-  return G.night ? 330 : BASE_VIS;
+  const fv = p.fx ? p.fx.vis : 1;
+  if (G.visOn && p.visMode) return (BASE_VIS + p.eyeVis) * fv;
+  return (G.night ? 330 : BASE_VIS) * fv;
 }
-const thermalRadius = () => Math.max((G.visOn && player.visMode === 'th') ? player.eyeThermal : 0, (curW() && curW().thermalR) || 0);
+const thermalRadius = () => Math.max(G.visOn ? player.eyeThermal : 0, (curW() && curW().thermalR) || 0);
 
 function syncPlayerLoadout() {
   const p = player;
@@ -569,7 +639,7 @@ function startReload() {
   if (p.equipT > 0) { p.autoReload = true; return; }
   p.healing = null;
   p.reloading = true; p.burstLeft = 0;
-  const slow = p.fx.oneArm && w.slot === 'primary' ? 1.4 : 1;
+  const slow = (p.fx.oneArm && w.slot === 'primary' ? 1.4 : 1) * (p.fx.reloadMul || 1);
   p.reloadT = w.reload * slow; p.reloadTotal = p.reloadT;
   p.reloadStage = w.reloadType === 'shell' ? 1 : 0;
   sfx(w.reloadType === 'shell' ? 'shell' : 'reload');
@@ -764,9 +834,9 @@ function hurtPlayerBullet(b) {
 /* ---------- Suprimentos ---------- */
 const healCount = (p, id) => id === 'medkit' ? p.cons.med : (p.hl[id] || 0);
 function healNeed(p, id) {
-  const hurt = PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98);
-  if (id === 'adrenaline') return p.adr <= 0;
-  if (id === 'splint') return ['armL', 'armR', 'legL', 'legR'].some(k => p.parts[k].hp < p.parts[k].max * .7);
+  const O = p.parts.org, hurt = PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98) || Object.keys(O).some(k => O[k].hp < 70);
+  if (id === 'adrenaline') return p.adr <= 0 || p.arrest > 0;
+  if (id === 'splint') return ['armL', 'armR', 'legL', 'legR'].some(k => p.parts[k].hp < p.parts[k].max * .7) || Object.keys(O).some(k => ORGANS[k].bone && O[k].hp < 70);
   if (id === 'painkiller') return hurt && p.regen <= 0;
   return hurt;
 }
@@ -790,12 +860,13 @@ function useMed() {
 }
 function finishHeal(p, id) {
   const P = p.parts, lift = (k, frac) => { if (P[k].hp > 0) P[k].hp = Math.min(P[k].max, P[k].hp + P[k].max * frac); };
-  if (id === 'bandage') { for (const k of PARTS) { if (P[k].hp > 0 && P[k].hp < P[k].max * .56) P[k].hp = P[k].max * .56; else lift(k, .08); } }
-  else if (id === 'painkiller') p.regen = 10;
-  else if (id === 'adrenaline') { p.adr = 12; lift('torso', .12); lift('head', .12); }
-  else if (id === 'splint') { for (const k of ['armL', 'armR', 'legL', 'legR']) { if (P[k].hp <= 0) P[k].hp = P[k].max * .5; else lift(k, .2); } }
+  const O = P.org, fixO = (pred, to) => { for (const k in O) if (pred(k)) O[k].hp = Math.max(O[k].hp, to); };
+  if (id === 'bandage') { for (const k of PARTS) { if (P[k].hp > 0 && P[k].hp < P[k].max * .56) P[k].hp = P[k].max * .56; else lift(k, .08); } fixO(k => !ORGANS[k].bone && k !== 'brain' && k !== 'heart' && k !== 'lungs', 70); }
+  else if (id === 'painkiller') { p.regen = 10; p.numb = 40; }
+  else if (id === 'adrenaline') { p.adr = 12; lift('torso', .12); lift('head', .12); if (p.arrest > 0) { p.arrest = 0; O.heart.hp = Math.max(O.heart.hp, 30); } }
+  else if (id === 'splint') { for (const k of ['armL', 'armR', 'legL', 'legR']) { if (P[k].hp <= 0) P[k].hp = P[k].max * .5; else lift(k, .2); } fixO(k => ORGANS[k].bone && k !== 'spine' && k !== 'skull', 60); }
   else if (id === 'medkit') healAll(p, .5);
-  else if (id === 'surgery') { for (const k of PARTS) if (P[k].hp > 0 || (k !== 'head' && k !== 'torso')) P[k].hp = P[k].max; }
+  else if (id === 'surgery') { for (const k of PARTS) if (P[k].hp > 0 || (k !== 'head' && k !== 'torso')) P[k].hp = P[k].max; fixO(k => k !== 'brain' || O.brain.hp > 0, 88); p.arrest = 0; }
   recalcFx(p);
   if (id === 'medkit') p.cons.med--; else p.hl[id]--;
   addText(p.x, p.y - 24, HMAP[id].name.toUpperCase() + ' APLICADO', '#8be36a', 12); sfx('heal');
@@ -804,6 +875,14 @@ function finishHeal(p, id) {
 }
 function updateHeal(p, dt) {
   if (p.adr > 0) p.adr -= dt;
+  if (p.conc > 0) p.conc -= dt;
+  if (p.numb > 0) { p.numb -= dt; if (p.numb <= 0) recalcFx(p); }
+  const fx = p.fx;
+  if (fx && fx.dizzy > 0 && Math.random() < dt * 1.2) shake(2 + fx.dizzy * 5);
+  if (fx && fx.cough && !p.walking) {
+    p.coughT = (p.coughT == null ? rand(2, 4) : p.coughT) - dt;
+    if (p.coughT <= 0) { p.coughT = rand(3.5, 7); makeNoise(p.x, p.y, 260); addText(p.x, p.y - 26, '*TOSSE*', '#d9857a', 11); bloodBurst(p.x, p.y, p.ang, 3, p.L, false); shake(3); }
+  }
   if (p.regen > 0) { p.regen -= dt; for (const k of PARTS) { const Q = p.parts[k]; if (Q.hp > 0 && Q.hp < Q.max) Q.hp = Math.min(Q.max, Q.hp + Q.max * .03 * dt); } recalcFx(p); }
   const h = p.healing; if (!h) return;
   h.t += dt;
@@ -860,7 +939,7 @@ function flashBang(g) {
     if (d < 210 && hasLOS(g.x, g.y, e.x, e.y, g.L)) { e.stun = Math.max(e.stun, 3.8 * (1 - d / 280)); e.mark = 1.5; e.markType = '?'; }
   }
   const p = player;
-  if (p.L === g.L) { const d = Math.hypot(p.x - g.x, p.y - g.y); if (d < 210 && hasLOS(g.x, g.y, p.x, p.y, g.L)) G.flashT = Math.max(G.flashT || 0, 3 * (1 - d / 280)); }
+  if (p.L === g.L) { const d = Math.hypot(p.x - g.x, p.y - g.y); if (d < 210 && hasLOS(g.x, g.y, p.x, p.y, g.L)) G.flashT = Math.max(G.flashT || 0, 3 * (1 - d / 280) * (1 - (p.flashRes || 0))); }
   makeNoise(g.x, g.y, 600);
 }
 function updateGrenades(dt) {
@@ -927,7 +1006,7 @@ function toggleVision() {
   const p = player;
   if (!p || p.dead || G.state !== 'play' || !p.visMode) return;
   G.visOn = !G.visOn; sfx('nv');
-  banner(G.visOn ? (p.visMode === 'nv' ? 'VISÃO NOTURNA LIGADA' : 'VISÃO TÉRMICA LIGADA') : 'VISÃO NORMAL');
+  banner(G.visOn ? (p.visMode === 'nv' ? (p.eyeThermal ? 'VISOR HÍBRIDO LIGADO' : 'VISÃO NOTURNA LIGADA') : p.visMode === 'zoom' ? 'BINÓCULOS: OLHE LONGE' : 'VISÃO TÉRMICA LIGADA') : 'VISÃO NORMAL');
 }
 
 // troca de andar ao pisar no centro de uma escada
@@ -2029,7 +2108,8 @@ function clampCam() {
 function updateCamera(dt) {
   const sp = mpSpec(), p = sp || player, w = vw / S, h = vh / S;
   let lx = 0, ly = 0;
-  const wp = curW(), look = wp && !wp.melee ? (wp.look || 1) : 1, long = wp && wp.range >= 1300;
+  const bz = G.visOn && !sp && p.visMode === 'zoom';
+  const wp = curW(), look = (wp && !wp.melee ? (wp.look || 1) : 1) * (bz ? p.eyeZoom : 1), long = bz || (wp && wp.range >= 1300);
   if (sp) { /* espectador: câmera centrada no aliado */ } else if (!touchMode) {
     const wx = cam.x + input.mx / S - p.x, wy = cam.y + input.my / S - p.y;
     const f = (long ? .6 : .25) * look, mx = (long ? 260 : 120) * look, d = Math.hypot(wx, wy);

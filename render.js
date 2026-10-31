@@ -136,6 +136,16 @@ function drawVestSkin(c, id, body) {
   else if (id === 'v_med') { c.fillStyle = '#8c7b55'; c.fillRect(-5, -8.4, 10, 16.8); c.fillStyle = '#6f6244'; c.fillRect(1.6, -6.6, 3, 3.8); c.fillRect(1.6, 2.8, 3, 3.8); c.fillStyle = '#a69568'; c.fillRect(-5, -8.4, 10, 1.6); }
   else if (id === 'v_heavy') { c.fillStyle = '#2b3035'; c.fillRect(-5.4, -9.4, 10.8, 18.8); c.fillStyle = '#3d444b'; c.fillRect(-3, -6.6, 6.4, 13.2); c.fillStyle = '#4a525a'; c.fillRect(-3, -6.6, 6.4, 2); c.fillStyle = '#1b1f23'; c.fillRect(2.4, -9.4, 2, 18.8); }
   else if (id === 'v_plate') { c.fillStyle = '#8f959b'; c.fillRect(-5.8, -10, 11.6, 20); c.fillStyle = '#c9ced2'; c.fillRect(-3.4, -7, 7, 14); c.fillStyle = '#e4e8eb'; c.fillRect(-3.4, -7, 7, 2); c.fillStyle = '#6c7278'; c.beginPath(); c.arc(0, -11, 3.4, 0, PI2); c.arc(0, 11, 3.4, 0, PI2); c.fill(); }
+  else if (GMAP[id] && GMAP[id].col) {
+    const g = GMAP[id], big = g.kg >= 9 ? 1 : 0;
+    c.fillStyle = g.col; c.fillRect(-5 - big * .7, -8.2 - big, 10 + big * 1.4, 16.4 + big * 2);
+    c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(1.6, -6, 3, 3.6); c.fillRect(1.6, 2.6, 3, 3.6);
+    if (id === 'v_carrier' || id === 'v_iv') { c.fillStyle = 'rgba(255,255,255,.24)'; c.fillRect(-3, -6.4, 6.6, 12.8); c.fillStyle = 'rgba(0,0,0,.3)'; c.fillRect(-3, -.4, 6.6, .8); }
+    if (id === 'v_eod') { c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(-6, -9.4, 12, 2.2); c.fillRect(-6, 7.4, 12, 2.2); c.strokeStyle = '#1b1f1b'; c.lineWidth = 1; c.strokeRect(-5.2, -8.4, 10.4, 16.8); }
+    if (id === 'v_assault') { c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(-4.6, -3, 2.6, 6); c.fillRect(-.8, -3, 2.6, 6); }
+    if (id === 'v_conc') { c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = .8; c.beginPath(); c.moveTo(0, -7.8); c.lineTo(0, 7.8); c.stroke(); }
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.fillRect(-5, -8.2 - big, 10, 1.6);
+  }
   else { c.fillStyle = body; c.fillRect(-4.6, -7.8, 9.2, 15.6); }
 }
 function drawHeadSkin(c, o) {
@@ -144,8 +154,24 @@ function drawHeadSkin(c, o) {
   else if (h === 'h_light') { c.fillStyle = '#4f5e3c'; c.beginPath(); c.arc(0, 0, 6.9, 0, PI2); c.fill(); c.fillStyle = '#39452b'; c.fillRect(4, -5.4, 3.6, 10.8); }
   else if (h === 'h_mich') { c.fillStyle = '#4a5440'; c.beginPath(); c.arc(0, 0, 7.4, 0, PI2); c.fill(); c.strokeStyle = '#2c3326'; c.lineWidth = 1.3; c.stroke(); c.strokeStyle = '#1a1d16'; c.lineWidth = 1; c.beginPath(); c.moveTo(-2, -6.6); c.lineTo(-2, 6.6); c.stroke(); c.fillStyle = '#222'; c.fillRect(4.4, -1.6, 2.6, 3.2); }
   else if (h === 'h_heavy') { c.fillStyle = '#2a2f33'; c.beginPath(); c.arc(0, 0, 7.9, 0, PI2); c.fill(); c.fillStyle = '#14181b'; c.fillRect(2.6, -6.2, 4.4, 12.4); c.fillStyle = '#4a5258'; c.fillRect(-1.5, -8.8, 3.4, 2.6); c.fillRect(-1.5, 6.2, 3.4, 2.6); c.strokeStyle = '#4a5258'; c.lineWidth = 1; c.beginPath(); c.arc(0, 0, 7.9, 0, PI2); c.stroke(); }
+  else if (GMAP[h] && GMAP[h].col) {
+    const g = GMAP[h], r = 6.4 + Math.min(2, g.kg * .35);
+    c.fillStyle = g.col; c.beginPath(); c.arc(0, 0, r, 0, PI2); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = 1.1; c.stroke();
+    if (h === 'h_cap') { c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(r - 2, -4.6, 4.6, 9.2); }
+    else if (h === 'h_riot') { c.fillStyle = 'rgba(120,200,255,.55)'; c.fillRect(r - 3.2, -r + 1, 5.6, r * 2 - 2); c.strokeStyle = '#0c1018'; c.strokeRect(r - 3.2, -r + 1, 5.6, r * 2 - 2); }
+    else if (h === 'h_eod') { c.fillStyle = '#0e1114'; c.fillRect(r - 3.6, -r + .8, 6, r * 2 - 1.6); c.fillStyle = 'rgba(255,255,255,.25)'; c.fillRect(r - 2.4, -r + 2, 1.6, 5); }
+    else if (h === 'h_ops') { c.fillStyle = '#2b2b2b'; c.fillRect(-r + 1, -1, r * 2 - 4, 2); c.fillRect(r - 3.4, -1.6, 2.8, 3.2); }
+    else if (h === 'h_ceramic') { c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = .9; c.beginPath(); c.moveTo(-r + 1, -2); c.lineTo(r - 1, -2); c.moveTo(-r + 1, 2); c.lineTo(r - 1, 2); c.stroke(); }
+    else if (h === 'h_pasgt') { c.strokeStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.moveTo(-3, -r + .6); c.lineTo(-3, r - .6); c.stroke(); }
+  }
   if (h) { c.fillStyle = o.stripe; c.globalAlpha = .75; c.fillRect(-1.2, -6.4, 2.4, 12.8); c.globalAlpha = 1; }
   if (o.eyesId === 'nvg') { c.fillStyle = '#15181a'; c.fillRect(2.6, -5.2, 3.6, 10.4); c.fillStyle = '#7dff9a'; c.beginPath(); c.arc(5.6, -2.6, 1.5, 0, PI2); c.arc(5.6, 2.6, 1.5, 0, PI2); c.fill(); }
+  else if (o.eyesId === 'nvg3') { c.fillStyle = '#101214'; c.fillRect(2.4, -5.8, 4.6, 11.6); c.fillStyle = '#7dff9a'; c.beginPath(); c.arc(6.4, -2.8, 1.9, 0, PI2); c.arc(6.4, 2.8, 1.9, 0, PI2); c.fill(); }
+  else if (o.eyesId === 'hybrid') { c.fillStyle = '#16191b'; c.fillRect(2.4, -6, 5, 12); c.fillStyle = '#b4ff7d'; c.beginPath(); c.arc(6.6, -2.8, 1.7, 0, PI2); c.fill(); c.fillStyle = '#ff9a3a'; c.beginPath(); c.arc(6.6, 2.8, 1.7, 0, PI2); c.fill(); }
+  else if (o.eyesId === 'th_lite') { c.fillStyle = '#2a2d31'; c.fillRect(3, -4, 3.6, 8); c.fillStyle = '#ff9a3a'; c.beginPath(); c.arc(6.4, 0, 1.7, 0, PI2); c.fill(); }
+  else if (o.eyesId === 'bino') { c.fillStyle = '#1c1f22'; c.beginPath(); c.arc(4.6, -2.6, 2.1, 0, PI2); c.arc(4.6, 2.6, 2.1, 0, PI2); c.fill(); c.fillStyle = '#6fa8ff'; c.beginPath(); c.arc(6, -2.6, 1, 0, PI2); c.arc(6, 2.6, 1, 0, PI2); c.fill(); }
+  else if (o.eyesId === 'e_goggle') { c.fillStyle = 'rgba(190,225,245,.7)'; c.fillRect(3, -5, 3, 10); c.strokeStyle = '#222'; c.lineWidth = .9; c.strokeRect(3, -5, 3, 10); }
   else if (o.eyesId === 'thermal') { c.fillStyle = '#2a2d31'; c.fillRect(2.4, -5.6, 5, 11.2); c.fillStyle = '#ff9a3a'; c.beginPath(); c.arc(7, 0, 2.3, 0, PI2); c.fill(); }
   c.fillStyle = 'rgba(255,255,255,.14)'; c.beginPath(); c.arc(-1.5, -1.5, 3.2, 0, PI2); c.fill();
 }
@@ -161,7 +187,7 @@ function drawSoldier(c, x, y, ang, o) {
   const helmet = o.tint ? '#ffffff' : dead ? '#2a1d1a' : o.helmet;
   if (o.skin && o.backId && !dead) drawBackpack(c, o.backId);
   const st = o.crawl ? 0 : Math.sin(o.walk) * 5;
-  const bootCol = o.legsId === 'b_run' ? '#e8e8ea' : o.legsId === 'b_tac' ? '#3a2a1a' : '#1e1e1e', bootR = o.legsId ? 4.8 : 4.2;
+  const bootCol = o.legsId === 'b_run' ? '#e8e8ea' : o.legsId === 'b_tac' ? '#3a2a1a' : (GMAP[o.legsId] && GMAP[o.legsId].col) || '#1e1e1e', bootR = o.legsId ? (o.legsId === 'b_steel' || o.legsId === 'b_exo' ? 5.4 : 4.8) : 4.2;
   c.fillStyle = bootCol;
   c.beginPath(); c.ellipse(st, -5, bootR, 3, 0, 0, PI2); c.fill();
   c.beginPath(); c.ellipse(-st, 5, bootR, 3, 0, 0, PI2); c.fill();
@@ -209,7 +235,7 @@ function drawSoldier(c, x, y, ang, o) {
 }
 
 // silhueta do corpo com as cores de dano (verde → amarelo → laranja → vermelho → preto)
-function drawBodyDiagram(c, parts, x, y, h, hl) {
+function drawBodyDiagram(c, parts, x, y, h, hl, noOrg) {
   const w = h * .62, cx = x + w / 2;
   const col = k => STATE_COL[stateOf(parts[k].hp / parts[k].max)];
   const piece = (k, fn) => {
@@ -227,7 +253,52 @@ function drawBodyDiagram(c, parts, x, y, h, hl) {
   piece('torso', () => rr(cx - h * .2, y + h * .21, h * .4, h * .36, 4));
   piece('head', () => { c.arc(cx, y + h * .1, h * .09, 0, PI2); });
   c.restore();
+  if (parts.org && !noOrg) drawOrganDots(c, parts.org, cx, y, h);
   void col;
+}
+// posições (em frações de h, x relativo ao centro) dos órgãos no desenho
+const ORG_POS = {
+  skull: [-.055, .045], brain: [0, .085], eyes: [.045, .12], face: [0, .165],
+  ribs: [-.14, .25], lungs: [.1, .27], heart: [-.06, .31], liver: [.09, .39], stomach: [-.07, .42], spine: [0, .5], kidneys: [.12, .5],
+  armLb: [-.3, .3], armLv: [-.3, .4], armLm: [-.3, .5], armRb: [.3, .3], armRv: [.3, .4], armRm: [.3, .5],
+  legLb: [-.115, .66], legLv: [-.115, .76], legLm: [-.115, .88], legRb: [.115, .66], legRv: [.115, .76], legRm: [.115, .88],
+};
+function drawOrganDots(c, org, cx, y, h, all) {
+  const r = Math.max(1.8, h * .03);
+  for (const k in ORG_POS) {
+    const st = orgState(org[k].hp);
+    if (!st && !all) continue;
+    const pp = ORG_POS[k], X = cx + pp[0] * h, Y = y + pp[1] * h;
+    c.fillStyle = ORG_COL[st]; c.strokeStyle = 'rgba(0,0,0,.9)'; c.lineWidth = 1;
+    c.beginPath();
+    if (ORGANS[k].bone) c.rect(X - r, Y - r, r * 2, r * 2); else c.arc(X, Y, r, 0, PI2);
+    c.fill(); c.stroke();
+    if (st === 3) { c.strokeStyle = '#000'; c.beginPath(); c.moveTo(X - r, Y - r); c.lineTo(X + r, Y + r); c.moveTo(X + r, Y - r); c.lineTo(X - r, Y + r); c.stroke(); }
+  }
+}
+// "boneco de defesa": capacete (cabeça), colete (tronco/braços) e botas (pernas) com a durabilidade de cada um
+function armorColor(ratio) { return ratio > .75 ? '#6fc3ff' : ratio > .5 ? '#4a9be0' : ratio > .25 ? '#e0b84a' : ratio > 0 ? '#e0702a' : '#16181a'; }
+function drawArmorDiagram(c, p, x, y, h) {
+  const w = h * .62, cx = x + w / 2;
+  const rr = (rx, ry, rw, rh, r) => { c.moveTo(rx + r, ry); c.arcTo(rx + rw, ry, rx + rw, ry + rh, r); c.arcTo(rx + rw, ry + rh, rx, ry + rh, r); c.arcTo(rx, ry + rh, rx, ry, r); c.arcTo(rx, ry, rx + rw, ry, r); c.closePath(); };
+  const ratio = s => { const a = p.armor[s]; return a ? a.dur / GMAP[a.id].dur : -1; };
+  const piece = (rt, fn, thin) => {
+    c.beginPath(); fn();
+    if (rt < 0) { c.fillStyle = 'rgba(255,255,255,.07)'; c.fill(); c.setLineDash([2, 2]); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; c.stroke(); c.setLineDash([]); }
+    else { c.fillStyle = armorColor(rt); c.fill(); c.strokeStyle = 'rgba(0,0,0,.85)'; c.lineWidth = 1.2; c.stroke(); if (rt <= 0) { c.save(); c.clip(); c.strokeStyle = '#ff3b30'; c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y + h); c.moveTo(x + w, y); c.lineTo(x, y + h); c.stroke(); c.restore(); } }
+  };
+  const legs = gearOf('legs'), vr = ratio('body'), hr = ratio('head');
+  const lr = legs ? (legs.legAbs ? 1 : .8) : -1;
+  c.save();
+  piece(lr, () => rr(cx - h * .2, y + h * .56, h * .17, h * .42, 3));
+  piece(lr, () => rr(cx + h * .03, y + h * .56, h * .17, h * .42, 3));
+  piece(vr < 0 ? -1 : vr * .9 + .1, () => rr(cx - h * .36, y + h * .22, h * .12, h * .34, 3));
+  piece(vr < 0 ? -1 : vr * .9 + .1, () => rr(cx + h * .24, y + h * .22, h * .12, h * .34, 3));
+  piece(vr, () => rr(cx - h * .2, y + h * .21, h * .4, h * .36, 4));
+  piece(hr, () => c.arc(cx, y + h * .1, h * .09, 0, PI2));
+  const eyes = gearOf('eyes');
+  if (eyes) { c.fillStyle = eyes.col || '#9ad'; c.fillRect(cx - h * .07, y + h * .085, h * .14, h * .035); }
+  c.restore();
 }
 
 function drawPickup(c, it) {
@@ -410,7 +481,7 @@ function render() {
       if (e.showT > 0) {     // painel de dano estilo War Thunder
         c2.save(); c2.globalAlpha = Math.min(1, e.showT);
         c2.fillStyle = 'rgba(0,0,0,.55)'; c2.fillRect(e.x + 18, e.y - 46, 30, 52);
-        drawBodyDiagram(c2, e.parts, e.x + 22, e.y - 43, 46, e.lastPart);
+        drawBodyDiagram(c2, e.parts, e.x + 22, e.y - 43, 46, e.lastPart, true);
         c2.restore();
       }
     } else if (e.flash > 0) {
@@ -917,6 +988,7 @@ window.addEventListener('keydown', e => {
     else if (e.code === 'KeyQ') selectWeapon(player.wi === 0 ? 1 : 0);
     else if (e.code === 'KeyF') quickMelee();
     else if (e.code === 'KeyN') toggleVision();
+    else if (e.code === 'KeyK') toggleMed();
     else if (e.code === 'KeyB') cycleAmmoType();
     else if (e.code === 'KeyT') cycleThrowable();
     else if (e.code === 'KeyG') throwGrenade();

@@ -61,7 +61,44 @@ function buildSquadHUD() {
 }
 const hudCache = {};
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
-const bodyCv = $('bodyHud'), bodyX = bodyCv.getContext('2d');
+const bodyCv = $('bodyHud'), bodyX = bodyCv.getContext('2d'), armCv = $('armHud'), armX = armCv.getContext('2d');
+/* ---------- Ficha médica: órgãos, ossos e defesa ---------- */
+let medOpen = false, medT = 0;
+function toggleMed(v) {
+  medOpen = v != null ? v : !medOpen;
+  $('medPanel').classList.toggle('hidden', !medOpen);
+  if (medOpen) { medT = 0; updateMedPanel(); }
+}
+function updateMedPanel() {
+  const p = player; if (!p) return;
+  const now = performance.now();
+  if (now - medT < 200) return; medT = now;
+  const bc = $('medBody').getContext('2d'), ac = $('medArm').getContext('2d');
+  bc.clearRect(0, 0, 170, 270); ac.clearRect(0, 0, 170, 270);
+  drawBodyDiagram(bc, p.parts, 14, 10, 230, p.showT > 0 ? p.lastPart : null, true);
+  drawOrganDots(bc, p.parts.org, 14 + 230 * .31, 10, 230, true);
+  drawArmorDiagram(ac, p, 14, 10, 230);
+  const rows = [];
+  for (const k in p.parts.org) {
+    const st = orgState(p.parts.org[k].hp);
+    if (st) rows.push(`<div class="o"><span>${ORGANS[k].bone ? '🦴' : '🫀'} ${ORGANS[k].name}</span><b style="color:${ORG_COL[st]}">${(ORGANS[k].bone ? ORG_STATE_NAME_BONE : ORG_STATE_NAME)[st]} · ${Math.round(p.parts.org[k].hp)}%</b></div>`);
+  }
+  const fx = p.fx, notes = [];
+  if (p.arrest > 0) notes.push('💔 Parada cardíaca: ' + Math.ceil(p.arrest) + 's (adrenalina ou cirurgia)');
+  if (p.bleed > 0) notes.push('🩸 Sangramento ' + p.bleed.toFixed(1) + '/s (bandagem estanca vasos e músculos)');
+  if (fx.cough) notes.push('😮‍💨 Pulmão ferido: tosse e denuncia sua posição');
+  if (fx.crawl) notes.push('🚫 Coluna/pernas: só consegue rastejar');
+  else if (fx.speed < .95) notes.push('🦵 Velocidade ' + Math.round(fx.speed * 100) + '% (ossos/músculos das pernas, pulmões)');
+  if (fx.vis < 1) notes.push('👁 Visão reduzida a ' + Math.round(fx.vis * 100) + '%');
+  if (fx.dizzy > 0) notes.push('😵 Tontura e visão turva (cérebro/crânio)');
+  if (fx.reloadMul > 1) notes.push('✋ Recarga ' + Math.round((fx.reloadMul - 1) * 100) + '% mais lenta (braços feridos)');
+  if (p.numb > 0) notes.push('💊 Analgésico: dor reduzida por ' + Math.ceil(p.numb) + 's');
+  const arm = ['head', 'body', 'legs', 'eyes'].map(s => { const g = gearOf(s), a = p.armor[s]; return g ? `<div class="o"><span>${GEAR_ICON[s]} ${g.name}</span><b>${a ? Math.ceil(a.dur) + ' / ' + g.dur : g.legAbs ? Math.round(g.legAbs * 100) + '% menos dano nas pernas' : g.desc.split('.')[0]}</b></div>` : ''; }).join('');
+  $('medList').innerHTML = '<h4>ÓRGÃOS E OSSOS</h4>' + (rows.join('') || '<div class="ok">Tudo saudável.</div>') + (notes.length ? '<h4>EFEITOS</h4>' + notes.map(n => `<div>${n}</div>`).join('') : '') + '<h4>DEFESA</h4>' + (arm || '<div>Sem equipamento.</div>');
+}
+$('medClose').addEventListener('click', () => toggleMed(false));
+bodyCv.addEventListener('click', () => toggleMed());
+armCv.addEventListener('click', () => toggleMed());
 function updateHUD() {
   const p = player;
   if (hudCache.mp !== MP.on) { hudCache.mp = MP.on; for (const id of ['mpBoard', 'mpFeed']) $(id).classList.toggle('hidden', !MP.on); if (!MP.on) $('mpRespawn').classList.add('hidden'); }
@@ -84,6 +121,14 @@ function updateHUD() {
   // silhueta de dano (verde → amarelo → laranja → vermelho → preto)
   bodyX.clearRect(0, 0, bodyCv.width, bodyCv.height);
   drawBodyDiagram(bodyX, p.parts, 4, 2, 92, p.showT > 0 ? p.lastPart : null);
+  armX.clearRect(0, 0, armCv.width, armCv.height);
+  drawArmorDiagram(armX, p, 4, 2, 92);
+  $('arrestTag').classList.toggle('hidden', !(p.arrest > 0));
+  if (p.arrest > 0) setText('arrestTag', '💔 PARADA CARDÍACA ' + Math.ceil(p.arrest) + 's · adrenalina/cirurgia');
+  const dz = Math.max(p.fx.dizzy || 0, Math.min(1, (p.conc || 0) / 2));
+  const blur = dz > .05 ? 'blur(' + (dz * 2.2).toFixed(1) + 'px)' : '';
+  if (hudCache.blur !== blur) { hudCache.blur = blur; $('game').style.filter = blur; }
+  if (medOpen) updateMedPanel();
 
   slotEls.forEach((s, i) => {
     const sl = p.slots[i];
@@ -111,7 +156,7 @@ function updateHUD() {
   $('btnCmd').classList.toggle('hold', G.hold);
   $('btnVis').classList.toggle('hidden', !p.visMode);
   $('btnVis').classList.toggle('hold', G.visOn);
-  $('btnVis').firstElementChild.textContent = p.visMode === 'th' ? '🔥' : '👁';
+  $('btnVis').firstElementChild.textContent = p.visMode === 'th' ? '🔥' : p.visMode === 'zoom' ? '🔭' : '👁';
 
   for (const a of allies) if (a._bar) { a._bar.style.width = (a.dead ? 0 : clamp(a.hp / a.maxHp * 100, 0, 100)) + '%'; a._el.classList.toggle('dead', a.dead); }
 
@@ -128,7 +173,7 @@ function updateHUD() {
 function levelFor(mode) { return (SAVE.progress[mode] || 0) + 1; }
 function showMenu() {
   LD = SAVE; G.custom = null;
-  G.state = 'menu';
+  G.state = 'menu'; toggleMed(false); $('game').style.filter = ''; hudCache.blur = '';
   document.body.classList.remove('playing');
   hideAllOverlays();
   $('hud').classList.add('hidden');
@@ -316,7 +361,7 @@ function renderArsenal() {
     }).join('') + `<button class="ghost sm" data-act="cleargear">Remover ${SLOT_NAMES[ars.gslot].toLowerCase()}</button></div>`;
     const head = gearOf('head'), body = gearOf('body'), legs = gearOf('legs'), back = gearOf('back');
     const li = loadInfo(), sp = Math.round(li.mul * (1 + (legs ? legs.spd : 0)) * 100);
-    html += `<div class="asum">Absorção: capacete <b>${head ? Math.round(head.abs * 100) : 0}%</b> · colete <b>${body ? Math.round(body.abs * 100) : 0}%</b> · Peso <b>${li.kg.toFixed(1)} kg</b> · Velocidade <b>${sp}%</b> · Munição <b>x${back ? back.capMul : 1}</b>. O capacete protege a cabeça; o colete, o tronco e (metade) os braços. As pernas ficam expostas.</div>`;
+    html += `<div class="asum">Absorção: capacete <b>${head ? Math.round(head.abs * 100) : 0}%</b> · colete <b>${body ? Math.round(body.abs * 100) : 0}%</b> · Peso <b>${li.kg.toFixed(1)} kg</b> · Velocidade <b>${sp}%</b> · Munição <b>x${back ? back.capMul : 1}</b>. O capacete protege a cabeça; o colete, o tronco e (metade) os braços. As pernas só são protegidas por botas reforçadas.</div>`;
     html += '<div class="agrid">' + GEAR.filter(g => g.slot === ars.gslot).map(gearCard).join('') + '</div>';
   } else if (ars.tab === 'partners') {
     html += `<div class="asum">Esquadrão: <b>${LD.squad.length}/${MAX_SQUAD}</b>${base ? '' : ' — altere o esquadrão antes da missão'}. Parceiros seguem você, atacam inimigos visíveis e podem ser mandados ficar parados (tecla C).</div>`;

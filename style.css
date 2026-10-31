@@ -372,3 +372,17 @@ body.touch #cons button{width:40px;height:40px}
 #loadTag{font-size:11px;color:#cfd8c8;margin-top:2px;opacity:.9}
 
 .menuCtl{max-width:340px;margin:10px auto 0}
+
+/* ===== V24: boneco de defesa, órgãos, ficha médica ===== */
+#armHud{width:44px;height:70px;background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:6px}
+#bodyHud,#armHud{cursor:pointer;pointer-events:auto}
+#arrestTag{margin-top:4px;font-size:10px;font-weight:800;color:#ff2a20;animation:blink .6s infinite}
+#medPanel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;background:rgba(10,14,16,.93);border:1px solid var(--line);border-radius:12px;padding:12px 14px;max-width:min(560px,96vw);max-height:92vh;overflow:auto;pointer-events:auto;color:#dfe6ea}
+#medPanel .medHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;letter-spacing:.08em}
+#medPanel .medHead button{background:#222c31;color:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 9px;cursor:pointer}
+#medPanel .medCols{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#medPanel canvas{width:130px;height:206px;background:rgba(255,255,255,.04);border-radius:8px}
+#medList{margin-top:8px;font-size:12px;line-height:1.5}
+#medList .o{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.07)}
+#medList .ok{color:#8be36a}
+#medList h4{margin:8px 0 2px;font-size:11px;letter-spacing:.1em;color:#9fb0b8}

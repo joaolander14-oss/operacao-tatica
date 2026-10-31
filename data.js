@@ -46,6 +46,41 @@ const WALKABLE = [1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0];   // para pathfinding 
 
 /* ---------- Partes do corpo (estilo War Thunder) ---------- */
 const PARTS = ['head', 'torso', 'armL', 'armR', 'legL', 'legR'];
+/* ---------- Órgãos e ossos: cada parte do corpo guarda os seus ---------- */
+// w = chance de ser atingido dentro da parte; m = multiplicador do dano (integridade 0-100); bone = osso (fratura)
+const ORGANS = {
+  skull:   { part: 'head',  name: 'Crânio',      bone: true,  w: .26, m: 1.6 },
+  brain:   { part: 'head',  name: 'Cérebro',     w: .2,  m: 2.4 },
+  eyes:    { part: 'head',  name: 'Olhos',       w: .2,  m: 2.2 },
+  face:    { part: 'head',  name: 'Face/Mandíbula', bone: true, w: .34, m: 1.8 },
+  ribs:    { part: 'torso', name: 'Costelas',    bone: true,  w: .24, m: 1.5 },
+  lungs:   { part: 'torso', name: 'Pulmões',     w: .17, m: 2 },
+  heart:   { part: 'torso', name: 'Coração',     w: .08, m: 2.6 },
+  liver:   { part: 'torso', name: 'Fígado',      w: .1,  m: 2 },
+  kidneys: { part: 'torso', name: 'Rins',        w: .1,  m: 2 },
+  stomach: { part: 'torso', name: 'Estômago',    w: .11, m: 1.7 },
+  spine:   { part: 'torso', name: 'Coluna',      bone: true,  w: .08, m: 1.3 },
+  armLb:   { part: 'armL',  name: 'Úmero/Rádio (esq.)', bone: true, w: .5,  m: 1.8 },
+  armLv:   { part: 'armL',  name: 'Artéria do braço (esq.)', w: .2, m: 2 },
+  armLm:   { part: 'armL',  name: 'Músculo do braço (esq.)', w: .3, m: 1.5 },
+  armRb:   { part: 'armR',  name: 'Úmero/Rádio (dir.)', bone: true, w: .5,  m: 1.8 },
+  armRv:   { part: 'armR',  name: 'Artéria do braço (dir.)', w: .2, m: 2 },
+  armRm:   { part: 'armR',  name: 'Músculo do braço (dir.)', w: .3, m: 1.5 },
+  legLb:   { part: 'legL',  name: 'Fêmur/Tíbia (esq.)', bone: true, w: .5,  m: 1.8 },
+  legLv:   { part: 'legL',  name: 'Artéria femoral (esq.)', w: .2, m: 2.1 },
+  legLm:   { part: 'legL',  name: 'Músculo da perna (esq.)', w: .3, m: 1.5 },
+  legRb:   { part: 'legR',  name: 'Fêmur/Tíbia (dir.)', bone: true, w: .5,  m: 1.8 },
+  legRv:   { part: 'legR',  name: 'Artéria femoral (dir.)', w: .2, m: 2.1 },
+  legRm:   { part: 'legR',  name: 'Músculo da perna (dir.)', w: .3, m: 1.5 },
+};
+const ORG_BY_PART = {};
+for (const k in ORGANS) (ORG_BY_PART[ORGANS[k].part] = ORG_BY_PART[ORGANS[k].part] || []).push(k);
+// estado do órgão pela integridade (0-100)
+const orgState = hp => hp <= 0 ? 3 : hp < 35 ? 2 : hp < 70 ? 1 : 0;
+const ORG_STATE_NAME = ['Saudável', 'Lesionado', 'Grave', 'Destruído'];
+const ORG_STATE_NAME_BONE = ['Íntegro', 'Trincado', 'Fraturado', 'Estilhaçado'];
+const ORG_COL = ['#3ddc5a', '#e8e03a', '#ff7a1f', '#ff2a20'];
+
 const PART_HP = { head: .5, torso: 1, armL: .55, armR: .55, legL: .65, legR: .65 };   // × vida máxima
 const PART_MUL = { head: 2.4, torso: 1, armL: .65, armR: .65, legL: .75, legR: .75 };  // multiplicador de dano
 const PART_NAME = { head: 'Cabeça', torso: 'Tronco', armL: 'Braço esq.', armR: 'Braço dir.', legL: 'Perna esq.', legR: 'Perna dir.' };
@@ -476,6 +511,27 @@ const GEAR = [
   { id: 'v_plate',  slot: 'body', name: 'Placa de Cerâmica',  abs: .72, dur: 260, cls: 4.8, w: .12,  price: 2600, desc: 'Absorve 72%. Classe 4.8. Pesada.' },
   { id: 'b_tac',    slot: 'legs', name: 'Botas Táticas',      spd: .06, price: 300,  desc: '+6% de velocidade.' },
   { id: 'b_run',    slot: 'legs', name: 'Botas de Corrida',   spd: .12, price: 800,  desc: '+12% de velocidade.' },
+  { id: 'h_cap',     slot: 'head', name: 'Boné Tático',        abs: .06, dur: 15,  cls: .8,  price: 80,   col: '#3b4a2a', desc: 'Quase sem proteção, mas não pesa nada.' },
+  { id: 'h_pasgt',   slot: 'head', name: 'Capacete PASGT',     abs: .3,  dur: 70,  cls: 2,   price: 380,  col: '#55603f', desc: 'Kevlar clássico. Absorve 30%. Classe 2.' },
+  { id: 'h_ops',     slot: 'head', name: 'Capacete Ops-Core',  abs: .4,  dur: 95,  cls: 2.8, price: 750,  col: '#6a5d45', desc: 'Leve e de corte alto. Absorve 40%. Classe 2.8.' },
+  { id: 'h_riot',    slot: 'head', name: 'Capacete Antitumulto', abs: .45, dur: 120, cls: 2.2, price: 700, col: '#1e2a3a', face: 1, desc: 'Viseira protege o rosto e os olhos. Absorve 45%.' },
+  { id: 'h_ceramic', slot: 'head', name: 'Capacete Cerâmico',  abs: .58, dur: 150, cls: 4.2, price: 1700, col: '#6d7377', desc: 'Placas cerâmicas. Absorve 58%. Classe 4.2.' },
+  { id: 'h_eod',     slot: 'head', name: 'Capacete EOD',       abs: .65, dur: 220, cls: 4.6, price: 2800, col: '#3a3a3a', face: 1, blast: .5, desc: 'Rosto protegido e -50% de dano de explosão na cabeça.' },
+  { id: 'v_conc',    slot: 'body', name: 'Colete Dissimulado', abs: .18, dur: 40,  cls: 1.2, price: 200,  col: '#20252b', desc: 'Fino e silencioso. Absorve 18%.' },
+  { id: 'v_assault', slot: 'body', name: 'Colete de Assalto',  abs: .55, dur: 160, cls: 3.2, price: 1200, col: '#6a4f3a', cons: 1, desc: 'Bolsos extras: +1 suprimento. Absorve 55%.' },
+  { id: 'v_iiia',    slot: 'body', name: 'Colete Nível IIIA',  abs: .5,  dur: 130, cls: 3,   price: 900,  col: '#3d4a52', desc: 'Para armas curtas e médias. Absorve 50%.' },
+  { id: 'v_carrier', slot: 'body', name: 'Porta-Placas',       abs: .66, dur: 220, cls: 4.2, price: 2000, col: '#5b5a3c', cons: 1, desc: 'Placas frontais e traseiras. Absorve 66%.' },
+  { id: 'v_eod',     slot: 'body', name: 'Traje Antibomba',    abs: .7,  dur: 300, cls: 3.8, price: 3200, col: '#3d4a3a', blast: .6, desc: 'Muito pesado. -60% de dano de explosão.' },
+  { id: 'v_iv',      slot: 'body', name: 'Placa Nível IV',     abs: .8,  dur: 320, cls: 5.5, price: 3600, col: '#a0a6ad', desc: 'Para fuzis. Absorve 80%. Extremamente pesada.' },
+  { id: 'b_work',    slot: 'legs', name: 'Coturno Militar',    spd: .03, legAbs: .1, price: 200,  col: '#2e2218', desc: '+3% de velocidade e -10% de dano nas pernas.' },
+  { id: 'b_steel',   slot: 'legs', name: 'Botas Reforçadas',   spd: -.02, legAbs: .3, price: 700, col: '#4b4b4f', desc: '-30% de dano nas pernas e ossos mais resistentes.' },
+  { id: 'b_sprint',  slot: 'legs', name: 'Tênis de Atleta',    spd: .18, price: 1500, col: '#e8d233', desc: '+18% de velocidade.' },
+  { id: 'b_exo',     slot: 'legs', name: 'Botas Hidráulicas',  spd: .24, legAbs: .15, price: 2800, col: '#2f6f9f', desc: '+24% de velocidade e -15% de dano nas pernas.' },
+  { id: 'e_goggle',  slot: 'eyes', name: 'Óculos Balísticos',  vis: 0, protEye: 1, flashRes: .55, price: 250, col: '#c9d6df', desc: 'Protegem os olhos de estilhaços e reduzem o clarão da atordoante.' },
+  { id: 'bino',      slot: 'eyes', name: 'Binóculos',          vis: 120, mode: 'zoom', zoom: 2.4, price: 500, col: '#2a2d31', desc: 'Tecla N: enxerga bem mais longe na direção da mira.' },
+  { id: 'th_lite',   slot: 'eyes', name: 'Térmica Compacta',   vis: 40, mode: 'th', thermal: 260, price: 1200, col: '#ff9a3a', desc: 'Visão térmica de curto alcance (tecla N).' },
+  { id: 'nvg3',      slot: 'eyes', name: 'Óculos Noturnos Gen3', vis: 260, mode: 'nv', price: 1500, col: '#7dff9a', desc: 'Visão noturna de alta qualidade (+260 de alcance).' },
+  { id: 'hybrid',    slot: 'eyes', name: 'Visor Híbrido',      vis: 200, mode: 'nv', thermal: 220, price: 2600, col: '#b4ff7d', desc: 'Visão noturna com detecção térmica por perto (tecla N).' },
   { id: 'bp_s',     slot: 'back', name: 'Mochila Pequena',    capMul: 1,   cons: 0, price: 0,    desc: 'Capacidade padrão.' },
   { id: 'bp_m',     slot: 'back', name: 'Mochila Média',      capMul: 1.4, cons: 1, price: 450,  desc: '+40% munição, +2 suprimentos.' },
   { id: 'bp_l',     slot: 'back', name: 'Mochila Grande',     capMul: 1.8, cons: 2, price: 1000, desc: '+80% munição, +4 suprimentos.' },
@@ -484,7 +540,9 @@ const GEAR = [
 ];
 const GMAP = Object.fromEntries(GEAR.map(g => [g.id, g]));
 /* ---------- Peso carregado (mão + costas) e velocidade ---------- */
-const GKG = { h_light: .5, h_mich: 1.4, h_heavy: 3.2, v_light: 2, v_med: 5, v_heavy: 9, v_plate: 13, b_tac: 1.2, b_run: .8, bp_s: 1, bp_m: 2, bp_l: 3.4, nvg: .6, thermal: 1.3 };
+const GKG = { h_light: .5, h_mich: 1.4, h_heavy: 3.2, v_light: 2, v_med: 5, v_heavy: 9, v_plate: 13, b_tac: 1.2, b_run: .8, bp_s: 1, bp_m: 2, bp_l: 3.4, nvg: .6, thermal: 1.3,
+  h_cap: .1, h_pasgt: 1.5, h_ops: 1.1, h_riot: 2.4, h_ceramic: 3.6, h_eod: 6, v_conc: 1, v_assault: 7, v_iiia: 5.5, v_carrier: 10, v_eod: 20, v_iv: 16,
+  b_work: 1.4, b_steel: 2.4, b_sprint: .6, b_exo: 3.5, e_goggle: .2, bino: .5, th_lite: .8, nvg3: .7, hybrid: 1.5 };
 GEAR.forEach(g => { g.kg = GKG[g.id] || 0; });
 const ATT_KG = { a_sup: .5, a_flash: .15, a_comp: .2, a_brake: .25, a_long: .7, a_choke: .2, a_red: .2, a_holo: .3, a_scope3: .6, a_scope6: .9, a_thermal: 1.1, a_grip: .25, a_angled: .2, a_laser: .2, a_light: .2, a_bipod: .6 };
 // massa de uma munição (kg)
@@ -561,7 +619,7 @@ const FOE_PAL = [
   ['#7a4a2a', '#4a2c18', '#5a3a20'], ['#5a3d6b', '#2e2238', '#3a2c47'], ['#9a7222', '#5a4418', '#715822'], ['#2a2a30', '#16161a', '#1c1c22'],
 ];
 const FOE_STRIPE = ['#d44a35', '#ff9a3a', '#f0b43a', '#e8e8e8', '#ff6a8a'];
-const FOE_TIERS = { head: [null, 'h_light', 'h_mich', 'h_heavy'], body: [null, 'v_light', 'v_med', 'v_heavy', 'v_plate'], legs: [null, 'b_tac', 'b_run'], back: ['bp_s', 'bp_m', 'bp_l'], eyes: [null, 'nvg', 'thermal'] };
+const FOE_TIERS = { head: [null, 'h_cap', 'h_light', 'h_pasgt', 'h_mich', 'h_ops', 'h_riot', 'h_heavy', 'h_ceramic'], body: [null, 'v_conc', 'v_light', 'v_med', 'v_iiia', 'v_assault', 'v_heavy', 'v_carrier', 'v_plate', 'v_iv'], legs: [null, 'b_work', 'b_tac', 'b_steel', 'b_run', 'b_sprint'], back: ['bp_s', 'bp_m', 'bp_l'], eyes: [null, 'e_goggle', 'bino', 'nvg', 'th_lite', 'nvg3', 'thermal', 'hybrid'] };
 // [distância preferida, alcance máximo, visão] por categoria de arma
 const FOE_ARCH = {
   'Pistolas': [190, 420, 520], 'Pistolas automáticas': [180, 400, 520], 'Revólveres': [200, 480, 520], 'Submetralhadoras': [200, 480, 520], 'Fuzis de assalto': [300, 640, 560],
@@ -615,7 +673,7 @@ function foeTy(ld) {
   const ty = {
     hp: 55 + ((Math.random() * 20) | 0) + Math.round(bk * 1.5), speed, r, scale: r / 12, weapon: id, w,
     color: pal[0], vest: pal[1], helmet: pal[2], stripe: FOE_STRIPE[(Math.random() * FOE_STRIPE.length) | 0],
-    armor: body ? body.abs : 0, helm: head ? head.abs : 0, cls: Math.max(body ? body.cls : 0, head ? head.cls : 0),
+    armor: body ? body.abs : 0, helm: head ? head.abs : 0, legAbs: legs && legs.legAbs || 0, cls: Math.max(body ? body.cls : 0, head ? head.cls : 0),
     credit: 18 + Math.round((w.price || 0) / 45), vision: vis, pref, laser: w.grp === 'Snipers' || !!w.laser, nades: ld.nades, gcd: [6, 10], heal: ld.heal,
   };
   if (ld.attach[id] && (ld.attach[id].top === 'a_scope3' || ld.attach[id].top === 'a_scope6')) ty.vision = Math.round(vis * 1.15);
