@@ -39,20 +39,21 @@ function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
-    master = AC.createGain(); master.gain.value = .95;
-    const lim = AC.createDynamicsCompressor(); lim.threshold.value = -12; lim.knee.value = 8; lim.ratio.value = 8; lim.attack.value = .002; lim.release.value = .14;
+    master = AC.createGain(); master.gain.value = .75;
+    const lim = AC.createDynamicsCompressor(); lim.threshold.value = -9; lim.knee.value = 6; lim.ratio.value = 7; lim.attack.value = .002; lim.release.value = .14;
     master.connect(lim); lim.connect(AC.destination);
     // barramento dos tiros: saturação (soco/estalo "estourado" de bodycam) + reverberação por convolução (eco de rua/prédio)
     gunBus = AC.createGain(); gunBus.gain.value = 2.1;
     const sh = AC.createWaveShaper(), cv = new Float32Array(2048);
     for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * 3.4) * .95; }
     sh.curve = cv; sh.oversample = '2x';
-    gunBus.connect(sh); sh.connect(master);
+    const gunOut = AC.createGain(); gunOut.gain.value = 2.1; gunOut.connect(lim);
+    gunBus.connect(sh); sh.connect(gunOut);
     const len = Math.floor(AC.sampleRate * 2.2), ir = AC.createBuffer(2, len, AC.sampleRate);
     for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / AC.sampleRate; lp += ((Math.random() * 2 - 1) - lp) * (.55 - .4 * Math.min(1, t / 1.2)); d[i] = lp * Math.exp(-t * 2.6) * (1 + (i < 900 ? 1.5 : 0)); } }
     const conv = AC.createConvolver(); conv.buffer = ir;
     revSend = AC.createGain(); revSend.gain.value = .4;
-    sh.connect(revSend); revSend.connect(conv); conv.connect(master);
+    sh.connect(revSend); revSend.connect(conv); conv.connect(gunOut);
     noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -119,31 +120,63 @@ const SFX = {
 };
 const sfx = (n, v) => { if (SFX[n]) SFX[n](v); };
 
-// Som de tiro sintetizado, alto como na vida real: estalo supersônico + estampido + chão/eco. Muda com o calibre, o cano e o acessório de boca.
-function gunshot(w, v = 1) {
+// Som de tiro sintetizado. Cada calibre tem seu timbre (pitch) e cada grupo de armas tem sua assinatura (ação, estampido, cauda).
+// fator de tom por calibre: menor = mais grave e "pesado"
+const SND_PITCH = {
+  '.22': 1.7, '.32': 1.45, '.380': 1.32, '9mm': 1.22, '9x18': 1.2, '7.62x25': 1.28, '5.7': 1.5, '4.6': 1.5, '.45': .95, '10mm': 1.02, '.357': .95, '.44': .8, '.50AE': .7, '.50BW': .75,
+  '5.56': 1.22, '5.45': 1.16, '5.8': 1.2, '.300': 1.0, '6mm': 1.12, '6.5g': 1.0, '7.62x39': .95, '7.92k': .95, '6.8': .9, '.30carb': 1.12, '.243': 1.06, '.308': .85, '6.5': .92,
+  '7.62x54': .8, '7.92': .8, '.30-06': .78, '.30-30': .9, '.375': .7, '.338': .65, '.300WM': .7, '.408': .6, '.416': .58, '.50BMG': .5, '14.5': .45, '.45-70': .7, '9x39': 1.05,
+  '12ga': .6, '12ga-slug': .55, '12ga-flech': .62, '12ga-dragon': .6, '12ga-rubber': .7, '12ga-frag': .5, '10ga': .5, '16ga': .66, '20ga': .72, '20ga-slug': .62, '.410': .92, '.410-slug': .8, '23mm': .4, '40mm': .5,
+};
+const SUBSONIC = new Set(['.22', '.32', '.380', '9mm', '9x18', '.45', '10mm', '9x39', '.357', '.44', '.50AE', '.45-70']);
+const clack = (delay, f, vol) => { tone(f, f * .5, .03, vol, 'square', delay); noiseHP(.03, 3200, vol * .7, delay); };
+function gunshot(w, v = 1) { try { gunshot2(w, v); } finally { OUT = null; } }
+function gunshot2(w, v = 1) {
   if (!AC || muted || !w) return;
-  const C = CALIBERS[w.cal], E = C ? C.dmg * (C.pel || 1) * .5 + (C.dmg || 10) * .5 : 20;
-  const cls = w.snd || 'rifle', mz = w.muzzle, len = w.len || 25;
+  const C = CALIBERS[w.cal], grp = w.grp || '', cls = w.snd || 'rifle', mz = w.muzzle, len = w.len || 25;
+  let pf = SND_PITCH[w.cal] || (C && C.fam ? .62 : 1);
+  if (grp === 'Submetralhadoras' || grp === 'Pistolas automáticas') pf *= 1.08;
+  const E = C ? C.dmg * (C.pel || 1) * .5 + (C.dmg || 10) * .5 : 20;
   const en = clamp(Math.log(E + 6) / Math.log(220), .22, 1.15);                     // "energia" do cartucho
   const indoor = player && bldIdxAt(player.x, player.y) >= 0;
   const sup = !!(w.sup || mz === 'a_sup');
   const brk = mz === 'a_brake' || mz === 'a_comp', fh = mz === 'a_flash', lb = mz === 'a_long';
-  const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .92 : 1) * (lb ? .95 : 1) * (sup ? .5 : 1);   // silenciador abafa, mas ainda se ouve
   const near = clamp(v * 1.4, .15, 1);                                                // longe: perde o estalo agudo
-  const V = v * loud * 1.45;
-  OUT = gunBus; if (revSend) revSend.gain.value = indoor ? .85 : (en > .62 ? .5 : .38);
-  noiseHP(.016 + .022 * en, sup ? 1100 : brk ? 2600 : 2000, .95 * V * near * (sup ? .45 : 1));            // estalo seco (onda de choque)
-  noiseHit(.07 + .13 * en, sup ? 2200 : 5200 * (1 - len / 260), sup ? 300 : 380, .9 * V * en);            // sopro do disparo
-  tone((150 + (1 - en) * 150) * (lb ? .85 : 1), 32, .12 + .32 * en, .75 * V * en, 'sine');                // estampido grave
-  tone((90 + (1 - en) * 60), 28, .08 + .2 * en, .45 * V * en, 'triangle', .004);                           // corpo
-  if (cls === 'shotgun') { tone(80, 26, .4, .7 * V, 'sawtooth'); noiseHit(.3, 2400, 200, .5 * V); }
-  if (cls === 'pistol' || cls === 'smg') noiseHP(.05, 3200, .25 * V, .016);                                // armação / ação do ferrolho
-  if (cls === 'sniper') tone(55, 24, .6, .45 * V, 'sine', .02);
-  // eco do ambiente (chão, prédios): mais longo em tiros fortes e em lugares fechados
-  noiseHit(.2 + en * .55, 1700, 90, (sup ? .12 : .32) * V * en, .06);
-  if (en > .62 || cls === 'sniper') noiseHit(.7, 1000, 70, (sup ? .08 : .2) * V * en, .2);
+  OUT = gunBus;
+  if (sup) {
+    // silenciado: sem estampido grave; fica agudo e fino ("pfft"/"thwip"), com a ação da arma em destaque
+    const V = v * 1.5, sub = SUBSONIC.has(w.cal);
+    revSend && (revSend.gain.value = indoor ? .45 : .18);
+    noiseHP(.045 + .03 * en, 3000 * Math.sqrt(pf), (sub ? .6 : .85) * V * en);                  // sopro agudo
+    noiseHit(.035, 10000, 3500, .4 * V * en);                                                    // chiado
+    tone(2000 * pf, 1000 * pf, .05, .26 * V, 'sine');                                            // tom fino
+    if (!sub) noiseHP(.012, 4200, .7 * V * near);                                                // estalo fino supersônico
+    clack(.02, 1500 * pf, .3 * V);                                                               // ferrolho/ação
+    if (cls === 'shotgun') clack(.3, 900, .25 * V);
+    OUT = null; return;
+  }
+  const loud = (mz === 'a_brake' ? 1.25 : mz === 'a_comp' ? 1.14 : 1) * (fh ? .92 : 1) * (lb ? .95 : 1);
+  const V = v * loud * 1.9;
+  revSend && (revSend.gain.value = indoor ? .85 : (en > .62 ? .5 : .38));
+  // estalo seco (onda de choque), sopro do disparo e estampido — tudo escalado pelo calibre
+  noiseHP(.016 + .022 * en, (brk ? 2600 : 1900) * Math.pow(pf, .6), .95 * V * near);
+  noiseHit(.07 + .13 * en, Math.min(9000, 4800 * pf) * (1 - len / 300), 380, .9 * V * en);
+  const boomMul = grp === 'Revólveres' ? 1.25 : (grp === 'Fuzis de batalha' || grp === 'Atiradores designados' || grp === 'Snipers') ? 1.15 : 1;
+  tone((150 * pf + 20) * (lb ? .85 : 1), 30, (.12 + .32 * en) / Math.sqrt(pf), .75 * V * en * boomMul, 'sine');
+  tone(95 * pf, 28, .08 + .2 * en, .45 * V * en, 'triangle', .004);
+  // assinatura de cada grupo
+  if (cls === 'shotgun') { tone(80, 26, .4, .7 * V, 'sawtooth'); noiseHit(.3, 2400, 200, .55 * V); if (w.reloadType === 'shell' || w.delay > .5) { clack(.32, 700, .22 * V); clack(.42, 520, .2 * V); } }
+  else if (grp === 'Pistolas' || grp === 'Pistolas automáticas') clack(.03, 2200, .16 * V);
+  else if (grp === 'Revólveres') tone(70, 26, .25, .35 * V, 'sine', .01);
+  else if (grp === 'Submetralhadoras') noiseHP(.05, 3200, .25 * V, .014);
+  else if (grp === 'Metralhadoras') { tone(65, 30, .16, .4 * V, 'sine', .01); noiseHP(.04, 2600, .22 * V, .02); }
+  else if (grp === 'Snipers' || grp === 'Rifles de alavanca') { if (w.reloadType === 'shell' || w.delay > .7) clack(grp === 'Snipers' ? .6 : .3, grp === 'Snipers' ? 900 : 1100, .25 * V); }
+  if (cls === 'sniper' || pf < .62) tone(52, 22, .7, .5 * V * Math.min(1, en), 'sine', .02);                 // calibres enormes: sub-grave longo
+  if (pf < .52) noiseHit(.5, 1400, 80, .4 * V, .03);
+  // eco do ambiente: mais longo em tiros fortes e em lugares fechados
+  noiseHit(.2 + en * .55, 1700, 90, .32 * V * en, .06);
+  if (en > .62 || cls === 'sniper') noiseHit(.7, 1000, 70, .2 * V * en, .2);
   if (indoor) { noiseHit(.25, 2200, 200, .24 * V * en, .05); noiseHit(.35, 1300, 110, .17 * V * en, .13); }
-  if (sup) noiseHP(.02, 4500, .1 * v, .03);                                                               // clique mecânico
   OUT = null;
 }
 
