@@ -7,7 +7,7 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
-const MP_VER = 22;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER = 23;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
 const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [
@@ -347,7 +347,7 @@ function mpBulletVsRemotes(b) {
     mpSendTo(r.bot ? 0 : r.id, { t: 'hit', v: r.bot ? r.id : undefined, p: part, d: Math.round(b.dmg * 10) / 10, pen: +b.pw.toFixed(2), a: +ang.toFixed(2), w: b.id });
     r.hitT = .1; r.showT = 3; r.lastPart = part;
     bloodBurst(r.x, r.y, ang, part === 'head' ? 8 : 4, r.L, false);
-    addText(r.x + rand(-6, 6), r.y - r.r - 6, Math.round(b.dmg * PART_MUL[part]), part === 'head' ? '#ffd24a' : '#fff', part === 'head' ? 14 : 12);
+    addText(r.x + rand(-6, 6), r.y - r.r - 6, Math.round(b.dmg * PART_MUL[part] * lethal()), part === 'head' ? '#ffd24a' : '#fff', part === 'head' ? 14 : 12);
     sfx(part === 'head' ? 'head' : 'hit');
     b.pw -= 1.4; b.dmg *= .7;
     if (b.pw <= 0) return true;

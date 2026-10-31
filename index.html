@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b100c">
 <title>Operação Tática</title>
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
 <canvas id="game"></canvas>
@@ -144,6 +144,8 @@
     <div class="logo">PAUSADO</div>
     <label class="shadowCtl">Intensidade da sombra <b id="shadowVal"></b><input type="range" id="shadowRange" min="0" max="100"></label>
     <label class="shadowCtl">Volume dos tiros <b id="gunVal"></b><input type="range" id="gunRange" min="0" max="100"></label>
+    <label class="shadowCtl">Letalidade dos tiros (offline) <b id="lethVal"></b><input type="range" id="lethRange" min="40" max="160"></label>
+    <label class="shadowCtl">Peso do giro do corpo <b id="turnVal"></b><input type="range" id="turnRange" min="0" max="100"></label>
     <div class="row">
       <button id="btnResume" class="big">CONTINUAR</button>
       <button id="btnPauseInv" class="ghost">🎒 INVENTÁRIO</button>
@@ -153,15 +155,15 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="data.js?v=33"></script>
-<script src="world.js?v=33"></script>
-<script src="game.js?v=33"></script>
-<script src="mp.js?v=33"></script>
-<script src="radio.js?v=33"></script>
-<script src="radiocmd.js?v=33"></script>
-<script src="mpmodes.js?v=33"></script>
-<script src="mpmodes2.js?v=33"></script>
-<script src="render.js?v=33"></script>
-<script src="ui.js?v=33"></script>
+<script src="data.js?v=35"></script>
+<script src="world.js?v=35"></script>
+<script src="game.js?v=35"></script>
+<script src="mp.js?v=35"></script>
+<script src="radio.js?v=35"></script>
+<script src="radiocmd.js?v=35"></script>
+<script src="mpmodes.js?v=35"></script>
+<script src="mpmodes2.js?v=35"></script>
+<script src="render.js?v=35"></script>
+<script src="ui.js?v=35"></script>
 </body>
 </html>

@@ -562,10 +562,14 @@ const shR = $('shadowRange');
 function syncShadowUI() {
   shR.value = SAVE.settings.shadow; $('shadowVal').textContent = SAVE.settings.shadow + '%';
   const gv = Math.round(gunVolume() * 100);
+  const lv = SAVE.settings.lethal == null ? 100 : SAVE.settings.lethal, tv = SAVE.settings.turn == null ? 100 : SAVE.settings.turn;
+  $('lethRange').value = lv; $('lethVal').textContent = lv + '%'; $('turnRange').value = tv; $('turnVal').textContent = tv === 0 ? 'instantâneo' : tv + '%';
   $('gunRange').value = gv; $('gunVal').textContent = gv + '%'; $('gunRange2').value = gv; $('gunVal2').textContent = gv + '%';
 }
 const setGunVol = v => { SAVE.settings.gunVol = +v; applyGunVolume(); syncShadowUI(); writeSave(); };
 ['gunRange', 'gunRange2'].forEach(id => $(id).addEventListener('input', e => { setGunVol(e.target.value); if (AC && !muted) gunshot(WMAP.ak47, 1); }));
+$('lethRange').addEventListener('input', e => { SAVE.settings.lethal = +e.target.value; syncShadowUI(); writeSave(); });
+$('turnRange').addEventListener('input', e => { SAVE.settings.turn = +e.target.value; syncShadowUI(); writeSave(); });
 shR.addEventListener('input', () => { SAVE.settings.shadow = +shR.value; $('shadowVal').textContent = shR.value + '%'; writeSave(); });
 syncShadowUI();
 $('pauseScreen').addEventListener('transitionend', syncShadowUI);

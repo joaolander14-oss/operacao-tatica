@@ -695,7 +695,7 @@ function foeTy(ld) {
   else { burst = w.pellets > 1 && w.delay < .6 ? 2 : 1; bdelay = Math.max(w.delay, .3); pmin = Math.max(.9, w.delay * .9); pmax = Math.max(1.6, w.delay * 1.7); if (grp === 'Snipers') { pmin = Math.max(pmin, 1.6); pmax = Math.max(pmax, 2.6); } }
   Object.assign(ty, {
     burst, bdelay, pmin, pmax, pellets: Math.min(12, w.pellets || 1), pen: c.pen + (w.ap || 0), bspeed: w.speed,
-    dmg: w.rocket ? Math.round(w.dmg * .6) : Math.max(3, Math.round(w.dmg * .38)),
+    dmg: w.rocket ? Math.round(w.dmg * .6) : Math.max(3, Math.round(w.dmg * .52)),
     spread: w.pellets > 1 ? Math.min(.3, w.spread + .03) : Math.min(.22, .02 + w.spread * 1.5),
     range: Math.max(260, Math.min(w.range * .9, rng)), rocket: !!w.rocket, rocketR: w.radius ? Math.round(w.radius * .85) : 0,
   });

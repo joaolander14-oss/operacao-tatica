@@ -457,19 +457,28 @@ function armorAbsorb(t, part, dmg, pen) {
 
 const PART_LBL = { head: 'CABEÇA', torso: 'TRONCO', armL: 'BRAÇO', armR: 'BRAÇO', legL: 'PERNA', legR: 'PERNA' };
 // aplica dano a uma parte; retorna true se o alvo morreu
+// letalidade: tiros matam rápido (estilo BodyCam); no online vale sempre o padrão para todos terem o mesmo dano
+const LETHAL_BASE = 2.3;
+const lethal = () => MP.on ? LETHAL_BASE : LETHAL_BASE * (SAVE.settings.lethal == null ? 100 : SAVE.settings.lethal) / 100;
+// perda de dano com a distância: pistolas, submetralhadoras e escopetas perdem muito; fuzis e snipers pouco
+function dmgFall(b, d) {
+  if (b.rocket || b.fragR || b.flame || !b.range) return 1;
+  const mx = b.range >= 1200 ? .1 : b.range >= 800 ? .22 : .5;
+  return 1 - mx * clamp((d / b.range - .45) / .55, 0, 1);
+}
 function applyHit(t, part, dmg, o) {
   if (t.dead) return false;
   if (t === player && MP.on && G.protT > 0) return false;
   if (t.mpId != null) t.lastBy = G.src != null ? G.src : MP.myId;
   const P = t.parts[part];
-  const d = armorAbsorb(t, part, dmg * PART_MUL[part], o.pen || 0);
+  const d = armorAbsorb(t, part, dmg * PART_MUL[part], o.pen || 0) * (o.lm != null ? o.lm : lethal());
   if (d <= .01) { if (t === player) sfx('armor'); return false; }
   const before = stateOf(P.hp / P.max);
   P.hp -= d;
   if (P.hp < 0) { const over = -P.hp; P.hp = 0; if (part !== 'head' && part !== 'torso') t.parts.torso.hp -= over * .35; }
   const after = stateOf(P.hp / P.max);
   t.showT = 3; t.lastPart = part;
-  const orgDead = hitOrgans(t, part, d, o);
+  const orgDead = hitOrgans(t, part, Math.min(d, 60), o);
   recalcFx(t);
   { const ha = o.ang || 0, force = d * .6 + (o.pen || 0) * 14; t.lastAng = ha; t.lastForce = force; if (t === player) { G.lastAng = ha; G.lastForce = force; } if (d > 6) bloodWall(t.x, t.y, ha, t.L, d, part === 'head'); }
 
@@ -489,7 +498,7 @@ function applyHit(t, part, dmg, o) {
   return false;
 }
 function blastHit(t, dmg, ang) {
-  const o = { pen: .6, ang };
+  const o = { pen: .6, ang, lm: 1.25 };
   if (applyHit(t, 'torso', dmg * .6, o)) return;
   const limbs = ['armL', 'armR', 'legL', 'legR'].sort(() => Math.random() - .5);
   for (let i = 0; i < 2; i++) if (applyHit(t, limbs[i], dmg * .38, o)) return;
@@ -1022,6 +1031,17 @@ function updateStairs(p, dt) {
   else if (k === K.STAIRDN && f > 0) { p.L = layerOf(bi, f - 1); p.stairCd = .9; sfx('stairs'); banner(f === 1 ? 'TÉRREO' : f + 'º ANDAR'); }
 }
 
+// velocidade de giro do corpo (rad/s): peso, arma pesada, ferimentos e ações diminuem; 'turn' = realismo (100 = realista, 0 = instantâneo)
+function bodyTurn(p) {
+  const t = SAVE.settings.turn == null ? 100 : SAVE.settings.turn;
+  if (t <= 0) return 99;
+  const w = curW(), wk = w && !w.melee ? weaponKg(w.id, LD.attach && LD.attach[w.id]) : 1;
+  let r = 6.4 * clamp(p.wMul || 1, .6, 1) * clamp(1.22 - wk * .06, .55, 1.12);
+  if (p.fx) r *= (.55 + .45 * p.fx.speed) * (1 - Math.min(.5, (p.fx.dizzy || 0) * .5));
+  if (p.fx && p.fx.crawl) r *= .55;
+  if (p.reloading) r *= .9; if (p.healing) r *= .7; if (p.equipT > 0) r *= .85; if (p.walking) r *= 1.12;
+  return r * (1 + (100 - t) / 100 * 5);
+}
 function updatePlayer(dt) {
   const p = player;
   if (p.dead) return;
@@ -1056,14 +1076,14 @@ function updatePlayer(dt) {
   let wantFire = false;
   if (!touchMode) {
     const wx = cam.x + input.mx / S, wy = cam.y + input.my / S;
-    p.ang = Math.atan2(wy - p.y, wx - p.x);
+    p.ang = turnToward(p.ang, Math.atan2(wy - p.y, wx - p.x), bodyTurn(p) * dt);
     wantFire = input.mouseDown || k.has('Space');
   } else {
     const a = sticks.aim, m = Math.hypot(a.x, a.y);
     if (a.id !== null && m > .2) {
       let ang = Math.atan2(a.y, a.x);
       if (m > .35) { ang = aimAssist(ang); wantFire = true; }
-      p.ang = ang;
+      p.ang = turnToward(p.ang, ang, bodyTurn(p) * dt);
     } else if (p.moving) p.ang = turnToward(p.ang, Math.atan2(my, mx), dt * 10);
   }
 
@@ -1271,7 +1291,8 @@ function updateAlly(a, dt) {
   let gx = p.x, gy = p.y;
   if (a.kind === 'partner' && !p.dead) {
     const ang = p.ang + Math.PI + (a.slot - 1) * .95;
-    gx = p.x + Math.cos(ang) * 78; gy = p.y + Math.sin(ang) * 78;
+    const tight = a.order && (a.order.k === 'cover' || a.order.k === 'heal') ? 38 : 78;
+    gx = p.x + Math.cos(ang) * tight; gy = p.y + Math.sin(ang) * tight;
     if (solidF(Math.floor(gx / T), Math.floor(gy / T), p.L) || !hasLOS(p.x, p.y, gx, gy, p.L)) { gx = p.x; gy = p.y; }
   } else if (a.kind === 'hostage') {
     const ang = p.ang + Math.PI + (a.slot - 2) * .8;
@@ -1308,9 +1329,9 @@ function updateAlly(a, dt) {
   if (a.def.heal) {
     a.healT -= dt;
     if (a.healT <= 0) {
-      a.healT = 1.2;
+      a.healT = a.order && a.order.k === 'heal' ? .5 : 1.2;
       const fx = t => { for (let i = 0; i < 3; i++) spawnPart({ x: t.x + rand(-8, 8), y: t.y + rand(-8, 8), vx: 0, vy: -40, life: .7, size: 2.2, color: '#9dffb5' }); };
-      if (!p.dead && sameL && dpl < 230 && PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98)) { healAll(p, .08); fx(p); }
+      if (!p.dead && sameL && dpl < 230 && PARTS.some(k => p.parts[k].hp < p.parts[k].max * .98)) { healAll(p, a.order && a.order.k === 'heal' ? .16 : .08); fx(p); }
       for (const o of allies) if (o !== a && !o.dead && !o.bound && o.hp < o.maxHp && o.L === a.L && Math.hypot(o.x - a.x, o.y - a.y) < 200) { o.hp = Math.min(o.maxHp, o.hp + 7); fx(o); }
     }
   }
@@ -1325,15 +1346,20 @@ function updateAlly(a, dt) {
   const goal = holdPos || tgtGoal || { x: gx, y: gy };
   const goalL = holdPos ? (ordL != null ? ordL : a.L) : tgtGoal ? tgtGoal.L : p.L;
   const gd = a.L === goalL ? Math.hypot(goal.x - a.x, goal.y - a.y) : 999;
-  const leash = ord && ord.k === 'goto' ? 40 : holdPos ? (ord && ord.k === 'defend' ? 130 : 70) : tgtGoal ? 240 : 300;
+  const leash = ord && ord.k === 'goto' ? 40 : holdPos ? (ord && ord.k === 'defend' ? 130 : 70) : tgtGoal ? 240 : ord && ord.k === 'cover' ? 110 : 300;
+  const supp = ord && ord.k === 'suppress' && !tg;
 
-  if (tg) {
+  if (supp) {
+    const toP = Math.atan2(ord.py - a.y, ord.px - a.x);
+    a.ang = turnToward(a.ang, toP, dt * 8);
+    if (a.cool <= 0 && Math.abs(angDiff(toP, a.ang)) < .2) { const sv = a.ang; a.ang += rand(-.1, .1); allyShoot(a, w); a.ang = sv; a.cool = w.delay * rand(1.3, 2.2); }
+  } else if (tg) {
     const dist = Math.hypot(tg.x - a.x, tg.y - a.y), toT = Math.atan2(tg.y - a.y, tg.x - a.x);
     a.ang = turnToward(a.ang, toT, dt * 8);
     if (gd > leash) moveAllyTo(a, goal.x, goal.y, goalL, a.speed * 1.2, dt);
     else if (dist < a.def.pref - 70) { moveEntity(a, -Math.cos(toT) * a.speed * .7 * dt, -Math.sin(toT) * a.speed * .7 * dt); a.moving = true; a.walk += a.speed * .08 * dt; }
     else if (dist > a.def.pref + 80 && !holdPos) { moveEntity(a, Math.cos(toT) * a.speed * .6 * dt, Math.sin(toT) * a.speed * .6 * dt); a.moving = true; a.walk += a.speed * .07 * dt; }
-    if (a.cool <= 0 && Math.abs(angDiff(toT, a.ang)) < .15 && dist < w.range) {
+    if (a.cool <= 0 && Math.abs(angDiff(toT, a.ang)) < .15 && dist < w.range && !(ord && ord.k === 'ceasefire' && a.hitT <= 0)) {
       allyShoot(a, w);
       a.cool = w.delay * (w.delay < .3 ? rand(1, 1.8) : rand(1.1, 1.4));
     }
@@ -1429,7 +1455,7 @@ function updateEnemy(e, dt) {
   if (e.burn > 0) {
     e.burn -= dt; e.burnT = (e.burnT || 0) - dt;
     if (Math.random() < dt * 14) spawnPart({ x: e.x + rand(-6, 6), y: e.y + rand(-6, 6), vx: rand(-20, 20), vy: rand(-50, -20), life: .35, size: 4, color: pickFire(), kind: 'fire', L: e.L });
-    if (e.burnT <= 0) { e.burnT = .25; applyHit(e, 'torso', 2.4, { pen: 9, ang: 0 }); if (e.dead) return; }
+    if (e.burnT <= 0) { e.burnT = .25; applyHit(e, 'torso', 2.4, { pen: 9, ang: 0, lm: 1 }); if (e.dead) return; }
   }
   bleedTick(e, dt); if (e.dead) return;
   if (e.kvx || e.kvy) { moveEntity(e, e.kvx * dt, e.kvy * dt); const dk = Math.exp(-dt * 9); e.kvx *= dk; e.kvy *= dk; }
@@ -1527,7 +1553,7 @@ function updateEnemy(e, dt) {
         e.gcd = (e.gcd == null ? rand(2, 5) : e.gcd) - dt;
         if (e.gcd <= 0 && e.react <= 0 && dist > 130 && dist < 470) { enemyThrow(e, tg); e.gcd = rand(ty.gcd[0], ty.gcd[1]); }
       }
-      if (!fx.armsDead && e.react <= 0 && Math.abs(angDiff(toT, e.ang)) < .25 && dist < ty.range) {
+      if (!fx.armsDead && e.react <= 0 && Math.abs(angDiff(toT, e.ang)) < .25 && dist < ty.range && !(e.order && e.order.k === 'ceasefire' && e.hitT <= 0)) {
         if (e.burstLeft > 0) {
           e.shotT -= dt;
           if (e.shotT <= 0) {
@@ -1627,6 +1653,7 @@ function updateBullets(dt) {
     const step = b.speed * dt, n = Math.max(1, Math.ceil(step / 8)), sd = step / n;
     for (let s = 0; s < n && alive; s++) {
       b.x += b.dx * sd; b.y += b.dy * sd; b.dist += sd;
+      { const f0 = dmgFall(b, b.dist - sd), f1 = dmgFall(b, b.dist); if (f0 > 0 && f1 < f0) b.dmg *= f1 / f0; }
       const tx = Math.floor(b.x / T), ty = Math.floor(b.y / T);
       if (b.L >= 0 && bldAt[ty * MW + tx] !== layerBld[b.L]) b.L = -1;
       if (tx !== b.tx || ty !== b.ty) { b.tx = tx; b.ty = ty; if (!bulletTile(b, tx, ty)) { alive = false; break; } }
@@ -1643,7 +1670,7 @@ function updateBullets(dt) {
             else {
               const part = rollPart(e, b.x, b.y, WMAP[b.id] && WMAP[b.id].spread < .02 ? .08 : 0);
               if (!b.ally) { G.hits++; G.hitMark = .15; G.hitCol = part === 'head' ? '#ffd24a' : part === 'torso' ? '#ffffff' : '#ff9a1f'; }
-              const dealt = b.dmg * PART_MUL[part];
+              const dealt = b.dmg * PART_MUL[part] * lethal();
               const killed = applyHit(e, part, b.dmg, { pen: b.pw, ang });
               if (!killed) { if (b.inc) e.burn = Math.max(e.burn, 2.5); if (b.stunS) e.stun = Math.max(e.stun, b.stunS); }
               addText(e.x + rand(-6, 6), e.y - e.r - 6, Math.round(dealt), part === 'head' ? '#ffd24a' : '#fff', part === 'head' ? 14 : 12);

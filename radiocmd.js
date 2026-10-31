@@ -14,10 +14,18 @@ const CMDS = [
   { k: 'attack', name: 'Atacar', icon: '⚔️', re: /\b(ataca\w*|ataque\w*|avanc\w*|elimin\w*|fogo|pra cima)\b/, say: ['Atacando!', 'Avançando, fogo!', 'Vamos pra cima!'] },
   { k: 'retreat', name: 'Recuar', icon: '↩️', re: /\b(recu\w*|volt\w*|retir\w*|retraia\w*|abort\w*)\b/, say: ['Recuando!', 'Voltando pra você!', 'Retirada, câmbio.'] },
   { k: 'report', name: 'Reportar', icon: '📋', re: /\b(relat\w*|report\w*|status|situacao|como (esta|vai|estao)|informe\w*)\b/, say: [''] },
+  { k: 'cover', name: 'Cobrir-me', icon: '🧍', re: /\b(cubr\w*|cobertura|reagrup\w*|(me|a mim) (prote\w*|cobr\w*)|(prote\w*|cobr\w*) (me|a mim))\b/, say: ['Cobrindo você!', 'Fico no seu pé.', 'Na sua cobertura.'] },
+  { k: 'suppress', name: 'Fogo de supressão', icon: '💥', pin: true, re: /\b(supress\w*|suprim\w*|metralh\w*|fogo de cobertura|atir\w+ (la|ali|aquele)|dispar\w+ (la|ali))\b/, say: ['Fogo de supressão!', 'Metralhando o ponto!', 'Cobrindo com fogo!'] },
+  { k: 'grenade', name: 'Granada lá', icon: '💣', pin: true, re: /\b(granada|frag|explosiv\w*|joga\w* (uma )?bomba)\b/, say: ['Granada saindo!', 'Fogo na toca!', 'Lançando!'] },
+  { k: 'flank', name: 'Flanquear', icon: '↪️', pin: true, re: /\b(flanq\w*|contorn\w*|pelo (lado|flanco))\b/, say: ['Flanqueando!', 'Contornando pelo lado.', 'Pelo flanco, câmbio.'] },
+  { k: 'smoke', name: 'Fumaça lá', icon: '☁️', pin: true, re: /\b(fumaca|cortina|fumegen\w*)\b/, say: ['Fumaça lançada!', 'Cortina de fumaça!', 'Fumaça no ponto!'] },
+  { k: 'heal', name: 'Médico: curar', icon: '✚', re: /\b(cura\w*|curativo|medic\w*|primeiros socorros|trata\w*)\b/, say: ['Curando você!', 'Segura aí, vou tratar!', 'Médico a caminho!'] },
+  { k: 'ceasefire', name: 'Cessar fogo', icon: '🤫', re: /\b(cessar\w*|cessem|segur\w+ o fogo|nao atir\w*|silencio|sem tiro\w*|discret\w*|furtiv\w*)\b/, say: ['Cessar fogo, só reajo se atacado.', 'Fogo contido.', 'Em silêncio, câmbio.'] },
+  { k: 'free', name: 'Liberar fogo', icon: '🔓', re: /\b(liber\w+|atirar a vontade|fogo livre)\b/, say: ['Fogo liberado!', 'Liberado, câmbio.', 'Atirando à vontade!'] },
 ];
 const CMAP = Object.fromEntries(CMDS.map(c => [c.k, c]));
 // o que fazer primeiro quando a frase tem várias palavras (mais específico antes)
-const CMD_ORDER = ['report', 'retreat', 'defend', 'hold', 'follow', 'attack', 'goto'];
+const CMD_ORDER = ['report', 'free', 'ceasefire', 'smoke', 'grenade', 'heal', 'flank', 'suppress', 'cover', 'retreat', 'defend', 'hold', 'follow', 'attack', 'goto'];
 const CMD = { open: false, pin: null, noRec: false, rec: null, heard: '', lastCall: 0, voice: null };
 const cmdRnd = a => a[(Math.random() * a.length) | 0];
 const cmdNorm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ');
@@ -44,7 +52,7 @@ function drawPings(c) {
     if (q.L !== player.L) continue;
     const a = clamp(1 - (G.time - q.t0 - 10) / 4, 0, 1), pulse = (G.time * 1.6) % 1;
     c.save(); c.translate(q.x, q.y); c.globalAlpha = a;
-    c.strokeStyle = q.k === 'defend' ? '#6fc3ff' : '#ffd24a'; c.lineWidth = 2.4;
+    c.strokeStyle = q.k === 'defend' ? '#6fc3ff' : q.k === 'grenade' || q.k === 'suppress' ? '#ff7a5a' : q.k === 'smoke' ? '#cfd8dc' : '#ffd24a'; c.lineWidth = 2.4;
     c.beginPath(); c.arc(0, 0, 14 + pulse * 22, 0, PI2); c.stroke();
     c.beginPath(); c.arc(0, 0, 9, 0, PI2); c.stroke();
     c.font = '15px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(CMAP[q.k].icon, 0, -26);
@@ -98,19 +106,47 @@ function cmdApplySp(k, pt) {
   if (!ps.length) { radioFeedLine('Rádio', 'Você não tem parceiros vivos.', false); return; }
   const near = ps.filter(a => range >= 90000 || (a.L === player.L ? Math.hypot(a.x - player.x, a.y - player.y) : 1e9) <= range || Math.hypot(a.x - player.x, a.y - player.y) <= range * .6);
   if (!near.length) { radioFeedLine('Rádio', 'Sem sinal: os parceiros estão fora do alcance.', false); return; }
+  if (k === 'grenade' || k === 'smoke') { cmdThrowSp(near, k, pt); return; }
   near.forEach((a, i) => {
-    cmdSetPartner(a, k, pt);
-    const line = k === 'report' ? cmdReport(a) : cmdRnd(CMAP[k].say);
+    const over = cmdSetPartner(a, k, pt, i);
+    const line = over || (k === 'report' ? cmdReport(a) : cmdRnd(CMAP[k].say));
     setTimeout(() => { if (!a.dead) radioSay(a.name, line); }, 450 + i * 1100);
   });
 }
-function cmdSetPartner(a, k, pt) {
+// devolve uma fala própria quando o parceiro não pode cumprir a ordem
+function cmdSetPartner(a, k, pt, i) {
   if (k === 'follow') { a.order = null; G.hold = false; }
   else if (k === 'hold') a.order = { k, x: a.x, y: a.y, L: a.L };
   else if (k === 'goto' || k === 'defend') a.order = { k, x: pt.x, y: pt.y, L: pt.L };
   else if (k === 'attack') a.order = { k };
   else if (k === 'retreat') a.order = { k, until: G.time + 7 };
+  else if (k === 'cover') a.order = { k };
+  else if (k === 'suppress') a.order = { k, x: a.x, y: a.y, L: a.L, px: pt.x, py: pt.y, until: G.time + 8 };
+  else if (k === 'flank') { const q = cmdFlankPoint(player, pt, i || 0); a.order = { k: 'goto', x: q.x, y: q.y, L: pt.L }; }
+  else if (k === 'heal') { if (!a.def.heal) return 'Não sou o médico!'; a.order = { k, until: G.time + 10 }; }
+  else if (k === 'ceasefire') a.order = { k };
+  else if (k === 'free') { if (a.order && a.order.k === 'ceasefire') a.order = null; }
   if (k !== 'report') { a.path = null; a.repathT = 0; }
+  return null;
+}
+// ponto de flanco: ao lado do alvo, alternando esquerda/direita
+function cmdFlankPoint(from, pt, i) {
+  const a0 = Math.atan2(pt.y - from.y, pt.x - from.x), side = i % 2 ? 1 : -1, off = 190 + 60 * ((i / 2) | 0);
+  const q = { x: pt.x + Math.cos(a0 + Math.PI / 2 * side) * off, y: pt.y + Math.sin(a0 + Math.PI / 2 * side) * off };
+  return solidF(Math.floor(q.x / T), Math.floor(q.y / T), pt.L) ? { x: pt.x, y: pt.y } : q;
+}
+// o parceiro mais perto do ponto lança a granada
+function cmdThrowSp(near, k, pt) {
+  const kind = k === 'smoke' ? 'smoke' : 'frag';
+  const all = near.map(a => ({ a, d: a.L === pt.L ? Math.hypot(pt.x - a.x, pt.y - a.y) : 1e9 })).sort((x, y) => x.d - y.d);
+  const c = all.find(q => (q.a.gUntil || 0) <= G.time) || all[0], a = c.a;
+  const say = t => setTimeout(() => { if (!a.dead) radioSay(a.name, t); }, 450);
+  if (c.d > 470) { say('Longe demais para lançar!'); return; }
+  if ((a.gUntil || 0) > G.time) { say('Ainda estou pegando outra granada!'); return; }
+  a.gUntil = G.time + 9;
+  const d = clamp(c.d, 90, 440), ang = Math.atan2(pt.y - a.y, pt.x - a.x), v = d * 2.2;
+  grenades.push({ x: a.x + Math.cos(ang) * 14, y: a.y + Math.sin(ang) * 14, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, t: TMAP[kind].fuse, kind, L: a.L, by: 'a' });
+  sfx('throw'); say(cmdRnd(CMAP[k].say));
 }
 function cmdReport(a) {
   let n = 0;
@@ -138,20 +174,41 @@ function cmdApplyMp(k, pt, fromId) {
   const myRange = fromId === MP.myId ? radioRange() : Math.min(99999, (who.rr | 0) || 0);
   const range = Math.min(myRange >= 90000 ? 1e9 : myRange, MP_BOT_RADIO);
   const bots = enemies.filter(e => e.mpId != null && !e.dead && !mpHostile(fromId, e.mpId) && (e.L === who.L ? Math.hypot(e.x - who.x, e.y - who.y) : Math.hypot(e.x - who.x, e.y - who.y) * 1.4) <= range);
-  const names = [];
-  bots.forEach(e => {
-    cmdSetBot(e, k, pt, fromId);
-    if (names.length < 2) names.push((MP.players.get(e.mpId) || {}).name || 'Bot');
-  });
-  const lines = names.map((n, i) => k === 'report' ? [n, cmdBotReport(bots[i])] : [n, cmdRnd(CMAP[k].say)]);
+  const nm = e => (MP.players.get(e.mpId) || {}).name || 'Bot';
+  let lines = [];
+  if (k === 'grenade' || k === 'smoke') {
+    const kind = k === 'smoke' ? 'smoke' : 'frag';
+    const cand = bots.filter(e => e.ty.nades && e.nadeN > 0 && e.ty.nades.includes(kind) && e.L === pt.L).sort((a, b) => Math.hypot(a.x - pt.x, a.y - pt.y) - Math.hypot(b.x - pt.x, b.y - pt.y))[0];
+    if (cand && Math.hypot(cand.x - pt.x, cand.y - pt.y) <= 470) { cmdBotThrow(cand, kind, pt); lines.push([nm(cand), cmdRnd(CMAP[k].say)]); }
+    else if (cand) lines.push([nm(cand), 'Longe demais para lançar!']);
+    else if (bots.length) lines.push([nm(bots[0]), kind === 'smoke' ? 'Estou sem fumaça!' : 'Estou sem granadas!']);
+  } else if (k === 'heal') {
+    if (bots.length) lines.push([nm(bots[0]), 'Não tenho kit médico, câmbio.']);
+  } else {
+    bots.forEach((e, i) => {
+      cmdSetBot(e, k, pt, fromId, i);
+      if (lines.length < 2) lines.push([nm(e), k === 'report' ? cmdBotReport(e) : cmdRnd(CMAP[k].say)]);
+    });
+  }
   if (!lines.length) lines.push(['Rádio', 'Sem sinal: nenhum bot aliado ao alcance.']);
   if (fromId === MP.myId) lines.forEach((l, i) => setTimeout(() => radioSay(l[0], l[1]), 450 + i * 1000));
   else mpSendTo(fromId, { t: 'cr', l: lines });
 }
-function cmdSetBot(e, k, pt, by) {
+function cmdSetBot(e, k, pt, by, i) {
   if (k === 'report') return;
-  e.order = k === 'follow' ? { k, by } : k === 'hold' ? { k, x: e.x, y: e.y, L: e.L } : (k === 'goto' || k === 'defend') ? { k, x: pt.x, y: pt.y, L: pt.L } : k === 'attack' ? { k } : { k, by, until: G.time + 7 };
+  const o = k === 'follow' || k === 'cover' || k === 'ceasefire' ? { k, by } : k === 'hold' ? { k, x: e.x, y: e.y, L: e.L } : (k === 'goto' || k === 'defend') ? { k, x: pt.x, y: pt.y, L: pt.L } : k === 'attack' ? { k } : k === 'retreat' ? { k, by, until: G.time + 7 } : null;
+  if (k === 'flank') { const who = by === MP.myId ? player : MP.remotes.get(by), q = cmdFlankPoint(who || e, pt, i || 0); e.order = { k: 'goto', x: q.x, y: q.y, L: pt.L }; }
+  else if (k === 'suppress') { e.order = null; e.path = null; goSearch(e, pt, pt.L); return; }
+  else if (k === 'free') { if (e.order && e.order.k === 'ceasefire') e.order = null; return; }
+  else e.order = o;
   e.path = null; e.idle = 0; if (e.state !== 'attack') e.state = 'patrol';
+}
+function cmdBotThrow(e, kind, pt) {
+  const i = e.ty.nades.indexOf(kind); e.ty.nades.splice(i, 1); e.nadeN--;
+  const dist = clamp(Math.hypot(pt.x - e.x, pt.y - e.y), 90, 440), a = Math.atan2(pt.y - e.y, pt.x - e.x), v = dist * 2.2;
+  const gr = { x: e.x + Math.cos(a) * 14, y: e.y + Math.sin(a) * 14, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: TMAP[kind].fuse, kind, L: e.L, by: 'e', owner: e.mpId };
+  grenades.push(gr); sfx('throw');
+  if (MP.on && MP.isHost) mpSendThrow(gr, false, e.mpId);
 }
 function cmdBotReport(e) {
   const hp = Math.round(e.hp / e.maxHp * 100);
@@ -175,10 +232,11 @@ function botOrderMove(e) {
   if (od.k === 'attack') return false;
   if (od.k === 'hold') { e.path = null; return true; }
   let x = od.x, y = od.y, L = od.L;
-  if (od.k === 'follow' || od.k === 'retreat') {
+  if (od.k === 'follow' || od.k === 'retreat' || od.k === 'cover' || od.k === 'ceasefire') {
     if (!who || who.dead) { e.order = null; return false; }
-    x = who.x + rand(-70, 70); y = who.y + rand(-70, 70); L = who.L;
-    if (e.L === L && Math.hypot(e.x - who.x, e.y - who.y) < 90) { e.path = null; return true; }
+    const sp = od.k === 'cover' ? 40 : 70;
+    x = who.x + rand(-sp, sp); y = who.y + rand(-sp, sp); L = who.L;
+    if (e.L === L && Math.hypot(e.x - who.x, e.y - who.y) < sp + 25) { e.path = null; return true; }
   } else if (e.L === L && Math.hypot(e.x - x, e.y - y) < 40) { e.path = null; return true; }
   pathTo(e, x, y, L);
   return !!e.path;
@@ -216,7 +274,7 @@ function cmdListen(on) {
         const alts = e.results[n];
         let done = false;
         for (let i = 0; i < alts.length && !done; i++) { const k = cmdParse(alts[i].transcript); if (k) { cmdIssue(k, alts[i].transcript); done = true; } }
-        if (!done) { radioFeedLine('Você', '"' + alts[0].transcript + '"', true); radioFeedLine('Rádio', 'Não entendi a ordem. Tente: seguir, ficar, atacar, ir até lá, defender, recuar, reportar.', false); }
+        if (!done) { radioFeedLine('Você', '"' + alts[0].transcript + '"', true); radioFeedLine('Rádio', 'Não entendi a ordem. Tente: seguir, ficar, atacar, ir até lá, defender, recuar, reportar, cobre-me, supressão, granada, fumaça, flanquear, cura, cessar fogo.', false); }
       }
     };
     r.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { banner('LIBERE O MICROFONE PARA DAR ORDENS POR VOZ'); if (CMD.rec === r) CMD.rec = null; } };
@@ -232,9 +290,10 @@ function toggleCmd(v) {
   CMD.open = v != null ? v : !CMD.open;
   const el = document.getElementById('cmdPanel'); if (!el) return;
   el.classList.toggle('hidden', !CMD.open);
-  if (CMD.open) el.innerHTML = '<div class="medHead"><b>📻 ORDENS POR RÁDIO</b><button id="cmdClose">✕</button></div>' + CMDS.map((c, i) => `<button class="cmd" data-cmd="${c.k}"><span>${c.icon}</span><b>${i + 1}</b> ${c.name}${c.pin ? ' <small>(no ponto marcado)</small>' : ''}</button>`).join('') + `<div class="cmdHint">Ou segure <b>Y</b> e diga: "seguir", "ficar", "atacar", "ir até lá", "defender", "recuar", "reportar". Falando para os ${cmdListening()}. <small>O reconhecimento de voz do navegador pode enviar o áudio ao serviço dele.</small></div>`;
+  if (CMD.open) el.innerHTML = '<div class="medHead"><b>📻 ORDENS POR RÁDIO</b><button id="cmdClose">✕</button></div>' + '<div class="cmdGrid">' + CMDS.map((c, i) => `<button class="cmd" data-cmd="${c.k}"><span>${c.icon}</span><b>${i < 9 ? i + 1 : i === 9 ? 0 : ''}</b> ${c.name}${c.pin ? ' <small>(ponto)</small>' : ''}</button>`).join('') + '</div>' + `<div class="cmdHint">Teclas 1 a 9 e 0, clique, ou segure <b>Y</b> e diga: "seguir", "ficar", "atacar", "ir até lá", "defender", "recuar", "reportar", "cobre-me", "supressão", "granada", "fumaça", "flanquear", "cura", "cessar fogo", "liberar fogo". Falando para os ${cmdListening()}. <small>O reconhecimento de voz do navegador pode enviar o áudio ao serviço dele.</small></div>`;
 }
 function cmdPick(i) {
+  if (i < 0) i = 9;
   const c = CMDS[i]; if (!c) return;
   toggleCmd(false); cmdIssue(c.k, null);
 }

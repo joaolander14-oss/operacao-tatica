@@ -23,5 +23,9 @@ Jogo de operações de soldados em 2D (visão de cima), feito só com HTML, CSS 
 
 - **Ordens por rádio aos bots aliados** (parceiros da campanha e bots do seu time no online): com rádio equipado, aperte **Z** e escolha a ordem (ou segure **Y** e fale: "seguir", "ficar", "ir até lá", "defender", "atacar", "recuar", "reportar"). "Ir até lá" e "defender" usam o ponto marcado pelo cursor. Só obedece quem estiver dentro do alcance do rádio, e eles respondem por texto e voz sintetizada, além de avisar quando veem inimigos. O reconhecimento de voz é o do navegador (Chrome/Edge) e pode enviar o áudio ao serviço dele; o menu funciona sem isso.
 
+- **Dano estilo BodyCam**: os tiros matam rápido (fuzil: 2 tiros no tronco sem colete, tiro na cabeça mata, sniper e calibres de batalha costumam matar em 1), com perda de dano pela distância em pistolas, submetralhadoras e escopetas, e o colete segue segurando. O jogador morre com ~3 tiros de fuzil. No pause há o controle "Letalidade dos tiros" (offline); online vale sempre o padrão para todos.
+- **Giro do corpo realista**: o personagem leva tempo para virar (mais devagar com peso, arma pesada, ferimentos nas pernas, tontura ou rastejando); o controle "Peso do giro do corpo" no pause vai de instantâneo a 100% realista.
+- **15 ordens por rádio**: seguir, ficar, ir até lá, defender, atacar, recuar, reportar, cobrir-me, fogo de supressão, granada, flanquear, fumaça, médico curar, cessar fogo e liberar fogo.
+
 ## Controles
 WASD mover · mouse mira/atira · 1-3 armas · R recarrega · F golpe · G arremessar · T trocar item · B tipo de cartucho · H kit médico · V reparar colete · N visão · E interagir · I inventário · Esc pausa. No celular: analógicos na tela.
