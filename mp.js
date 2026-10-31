@@ -7,7 +7,7 @@
    · quem atira decide o acerto e o alvo aplica o dano (colete, partes do corpo)
    · explosivos, granadas, minas e fogo são simulados em todos e só ferem o jogador local
    ===================================================================== */
-const MP_VER = 18;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
+const MP_VER = 19;                                   // versão do protocolo: anfitrião e convidados precisam ter a mesma
 const MP_VER_MSG = 'Versão diferente do anfitrião: atualize a página (Ctrl+F5, ou limpe o cache no celular) e entre de novo.';
 const MP_MAX = 8, MP_SEND = 1 / 15, MP_RESPAWN = 4, MP_PROT = 2.5, MP_PK_RESPAWN = 40;
 const MP_TEAMS = [
@@ -40,11 +40,21 @@ try { const u = new URLSearchParams(location.search).get('sala'); if (u) MP.join
 
 /* ---------- Auxiliares ---------- */
 const mpTeamOf = id => { const p = MP.players.get(id); return p ? p.team : 0; };
-const MP_GAMEMODES = ['dm', 'tdm', 'bomb', 'zone'];
-const mpTdm = () => MP.cfg.gm !== 'dm';
+const MP_GAMEMODES = ['dm', 'tdm', 'bomb', 'zone', 'gungame', 'koth', 'coop'];
+const mpTdm = () => ['tdm', 'bomb', 'zone', 'coop'].includes(MP.cfg.gm);
 const mpRounds = () => MP.cfg.gm === 'bomb' || MP.cfg.gm === 'zone';
 // lado: nas equipes normais = equipe; nos modos de rounds 0 = defesa (azul), 1 = ataque (vermelho), trocando na metade
 const mpSide = id => mpRounds() ? ((mpTeamOf(id) & 1) ^ MP.swap) : (mpTeamOf(id) & 1);
+const mpIdOf = c => c === player ? MP.myId : (c.mpId != null ? c.mpId : c.id);
+// quem ataca quem, conforme o modo: todos contra todos / equipes / cooperativo (bots × humanos)
+function mpHostile(a, b) {
+  if (a === b) return false;
+  const g = MP.cfg.gm;
+  if (g === 'dm' || g === 'gungame' || g === 'koth') return true;
+  const pa = MP.players.get(a), pb = MP.players.get(b);
+  if (g === 'coop') return !!(pa && pa.bot) !== !!(pb && pb.bot);
+  return (pa ? pa.team : 0) !== (pb ? pb.team : 0);
+}
 const mpTeamLabel = t => mpRounds() ? (t ? 'TIME 2' : 'TIME 1') : MP_TEAMS[t & 1].name;
 const mpFriend = id => id != null && id !== MP.myId && mpTdm() && mpTeamOf(id) === mpTeamOf(MP.myId);
 function mpLook(id) {
@@ -119,7 +129,7 @@ function mpHostRecv(conn, m) {
     if (MP.on || MP.players.size >= MP_MAX) { conn.send({ t: 'full', why: MP.on ? 'A partida já começou.' : 'Sala cheia.' }); setTimeout(() => { try { conn.close(); } catch (_) { /* ignora */ } }, 400); return; }
     const id = MP.nextId++, t0 = [...MP.players.values()].filter(p => p.team === 0).length, t1 = MP.players.size - t0;
     conn._pid = id; MP.conns.set(id, conn);
-    MP.players.set(id, { id, name: mpSanName(m.name), team: t0 <= t1 ? 0 : 1, kills: 0, deaths: 0, load: mpCleanLoad(m.load) });
+    MP.players.set(id, { id, name: mpSanName(m.name), team: MP.cfg.gm === 'coop' ? 0 : (t0 <= t1 ? 0 : 1), kills: 0, deaths: 0, load: mpCleanLoad(m.load) });
     conn.send({ t: 'welcome', id, ver: MP_VER });
     mpTrimBots();
     mpBroadcastLobby();
@@ -150,7 +160,7 @@ function mpSyncBots() {
   if (!MP.isHost) return;
   for (const [id, p] of [...MP.players]) if (p.bot) MP.players.delete(id);
   const humans = [...MP.players.values()];
-  const n = clamp(Math.min(MP.cfg.bots, MP_TOTAL_MAX - humans.length), 0, MP_BOT_MAX), pool = MP_BOT_POOL[MP.cfg.bt] || MP_BOT_POOL.mix;
+  const n = MP.cfg.gm === 'coop' ? 0 : clamp(Math.min(MP.cfg.bots, MP_TOTAL_MAX - humans.length), 0, MP_BOT_MAX), pool = MP_BOT_POOL[MP.cfg.bt] || MP_BOT_POOL.mix;
   let t0 = humans.filter(p => p.team === 0).length, t1 = humans.length - t0;
   for (let k = 0; k < n; k++) {
     const id = 100 + k, team = t0 <= t1 ? 0 : 1, foe = rollFoe(pool.power + Math.random() * .2 - .1, pool.cats);
@@ -231,6 +241,9 @@ function mpHandle(m) {
     case 'pk': if (MP.on) mpOnPick(m); break;
     case 'end': if (m.f === 0) mpFinish(m.r); break;
     case 'rnd': if (m.f === 0) mpOnRound(m); break;
+    case 'pts': if (MP.on && m.f === 0) mpOnPts(m); break;
+    case 'bl': if (MP.on && m.f === 0) mpOnBotList(m); break;
+    case 'wave': if (MP.on && m.f === 0 && (m.st === 'live' || m.st === 'between')) coopOnWave(m.n | 0, m.st); break;
     case 'sb': if (MP.on && m.f === 0 && Array.isArray(m.l)) for (const it of m.l.slice(0, 16)) mpOnState(Object.assign({ f: 0 }, it)); break;
     case 'al': if (MP.on && m.f === 0 && Array.isArray(m.a)) mpReconcile(m.a); break;
     case 'obj': if (MP.on) { if (m.k === 'plant') mpApplyPlant(m.s); else if (m.k === 'defuse') mpApplyDefuse(); } break;
@@ -439,8 +452,8 @@ function mpFeed(html) { MP.feed.push({ html, t: 7 }); if (MP.feed.length > 6) MP
 function mpLocalDied() {
   const killer = (G.time - (G.lastHitT || -99) < 15) ? G.lastHitBy : null;
   const p = player;
-  MP.respawnT = MP.cfg.gm === 'bomb' ? 1e9 : MP.cfg.gm === 'zone' ? 6 : MP_RESPAWN;
-  const m = { t: 'dead', v: MP.myId, k: killer == null ? null : killer, w: G.lastHitW || null, x: mpR(p.x), y: mpR(p.y), a: +p.ang.toFixed(2), L: p.L };
+  MP.respawnT = MP.cfg.gm === 'bomb' ? 1e9 : MP.cfg.gm === 'zone' ? 6 : MP.cfg.gm === 'coop' ? 8 : MP_RESPAWN;
+  const m = { t: 'dead', v: MP.myId, k: killer == null ? null : killer, w: G.lastHitW || null, x: mpR(p.x), y: mpR(p.y), a: +p.ang.toFixed(2), L: p.L, ha: +(G.lastAng != null ? G.lastAng : p.ang).toFixed(2), fo: Math.round(G.lastForce || 0) };
   mpSend(m);
   m.f = MP.myId; mpOnDead(m, MP.players.get(MP.myId));
   G.lastHitBy = null; G.lastHitT = -99;
@@ -449,6 +462,7 @@ function mpOnDead(m, vic) {
   if (!vic || (m.v !== m.f && !(m.f === 0 && vic.bot))) return;
   const killer = m.k != null ? MP.players.get(m.k | 0) : null;
   vic.deaths++; vic.alive = false;
+  if (MP.cfg.gm === 'gungame') ggOnKill(killer && killer !== vic && !(mpTdm() && killer.team === vic.team) ? killer : (killer === vic || !killer ? vic : null), vic, m.w);
   if (killer && killer !== vic && !(mpTdm() && killer.team === vic.team)) { killer.kills++; if (mpTdm() && !mpRounds()) MP.teamScore[killer.team & 1]++; if (killer.id === MP.myId) { G.kills++; sfx('kill'); banner('ABATEU ' + vic.name.toUpperCase()); } }
   else if (!killer || killer === vic) { vic.kills = Math.max(0, vic.kills - 1); if (mpTdm() && !mpRounds()) MP.teamScore[vic.team & 1] = Math.max(0, MP.teamScore[vic.team & 1] - 1); }
   const wn = m.w && WMAP[m.w] ? WMAP[m.w].name : (m.w === 'boom' ? 'explosão' : 'fogo/sangramento');
@@ -459,7 +473,7 @@ function mpOnDead(m, vic) {
     if (r) { r.dead = true; r.pr = false; }
     if (vic.bot && MP.isHost) { mpCheckWin(); return; }
     const x = mpNum(m.x), y = mpNum(m.y), L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
-    addDecal({ k: 'corpse', x, y, ang: mpNum(m.a), who: 'player', L });
+    addDecal({ k: 'corpse', x, y, ang: mpNum(m.a), who: 'player', L, ...corpseKick(clamp(mpNum(m.fo), 0, 400), mpNum(m.ha, mpNum(m.a))) });
     addDecal({ k: 'pool', x, y, r: 6, max: 20, a: .8, L });
     bloodBurst(x, y, mpNum(m.a), 14, L, true);
   }
@@ -469,9 +483,9 @@ function mpOnDead(m, vic) {
 function mpBotDied(e) {
   const vic = MP.players.get(e.mpId); if (!vic) return;
   const k = e.lastBy;
-  const m = { t: 'dead', v: e.mpId, k: k == null ? null : k, w: e.lastW || null, x: mpR(e.x), y: mpR(e.y), a: 0, L: e.L };
+  const m = { t: 'dead', v: e.mpId, k: k == null ? null : k, w: e.lastW || null, x: mpR(e.x), y: mpR(e.y), a: 0, L: e.L, ha: +(e.lastAng || 0).toFixed(2), fo: Math.round(e.lastForce || 0) };
   mpSend(m); m.f = 0; mpOnDead(m, vic);
-  if (MP.cfg.gm !== 'bomb') MP.botRespawns.push({ at: G.time + (MP.cfg.gm === 'zone' ? 8 : 5), id: e.mpId });
+  if (MP.cfg.gm !== 'bomb' && MP.cfg.gm !== 'coop') MP.botRespawns.push({ at: G.time + (MP.cfg.gm === 'zone' ? 8 : 5), id: e.mpId });
 }
 function mpSpawnBot(p, spot) {
   const pool = mpRounds() ? MP.pools[mpSide(p.id)] : null;
@@ -495,6 +509,8 @@ function mpFarSpot(list) {
 }
 function mpCheckWin() {
   if (!MP.isHost || MP.ended || mpRounds()) return;
+  if (MP.cfg.gm === 'gungame') { if ([...MP.players.values()].some(p => (p.lvl || 0) >= GG_LADDER.length)) { mpSend({ t: 'end', r: 'limit' }); mpFinish('limit'); } return; }
+  if (MP.cfg.gm === 'koth' || MP.cfg.gm === 'coop') return;
   const kl = MP.cfg.kl;
   const hit = mpTdm() ? MP.teamScore.some(s => s >= kl) : [...MP.players.values()].some(p => p.kills >= kl);
   if (hit) { mpSend({ t: 'end', r: 'limit' }); mpFinish('limit'); }
@@ -505,10 +521,11 @@ function mpFinish(why) {
   G.state = 'over'; document.body.classList.remove('playing');
   releaseSticks(); input.mouseDown = false; input.act = false;
   hideAllOverlays(); $('hud').classList.add('hidden');
-  const list = [...MP.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  const list = [...MP.players.values()].filter(p => !(MP.cfg.gm === 'coop' && p.bot)).sort((a, b) => mpVal(b) - mpVal(a) || a.deaths - b.deaths);
   const me = MP.players.get(MP.myId);
   let title, sub = '';
   if (why === 'host') { title = 'PARTIDA <span style="color:var(--bad)">ENCERRADA</span>'; sub = 'O anfitrião saiu da sala.'; }
+  else if (MP.cfg.gm === 'coop') { const total = MP.cfg.rounds * 2, won = why === 'limit'; title = won ? '<span>VITÓRIA</span>' : 'FIM DA PARTIDA'; sub = won ? `Todas as ${total} ondas foram concluídas!` : `Você chegou à onda ${MP.wave}/${total}.`; }
   else if (mpTdm()) {
     const a = MP.teamScore[0], b = MP.teamScore[1], win = a === b ? -1 : (a > b ? 0 : 1);
     title = win < 0 ? 'EMPATE' : win === (me ? me.team : 0) ? '<span>VITÓRIA</span>' : 'DERROTA';
@@ -516,11 +533,11 @@ function mpFinish(why) {
   } else {
     const best = list[0];
     title = best && me && best.id === me.id ? '<span>VITÓRIA</span>' : 'FIM DA PARTIDA';
-    sub = best ? `Vencedor: ${mpEsc(best.name)} (${best.kills} abates)` : '';
+    sub = best ? `Vencedor: ${mpEsc(best.name)} (${mpVal(best)} ${mpValLabel().toLowerCase()})` : '';
   }
   $('endTitle').innerHTML = title; $('endSub').innerHTML = sub;
-  $('endStats').innerHTML = '<table class="sbtab"><tr><th>#</th><th>Jogador</th>' + (mpTdm() ? '<th>Equipe</th>' : '') + '<th>Abates</th><th>Mortes</th></tr>' +
-    list.map((p, i) => `<tr class="${p.id === MP.myId ? 'me' : ''}"><td>${i + 1}</td><td style="color:${mpColor(p.id)}">${mpEsc(p.name)}</td>` + (mpTdm() ? `<td>${mpTeamLabel(p.team)}</td>` : '') + `<td>${p.kills}</td><td>${p.deaths}</td></tr>`).join('') + '</table>';
+  $('endStats').innerHTML = '<table class="sbtab"><tr><th>#</th><th>Jogador</th>' + (mpTdm() ? '<th>Equipe</th>' : '') + '<th>' + mpValLabel() + '</th><th>Mortes</th></tr>' +
+    list.map((p, i) => `<tr class="${p.id === MP.myId ? 'me' : ''}"><td>${i + 1}</td><td style="color:${mpColor(p.id)}">${mpEsc(p.name)}</td>` + (mpTdm() ? `<td>${mpTeamLabel(p.team)}</td>` : '') + `<td>${mpVal(p)}</td><td>${p.deaths}</td></tr>`).join('') + '</table>';
   for (const id of ['btnNext', 'btnRetry', 'btnEndArsenal']) $(id).classList.add('hidden');
   $('btnMpLobby').classList.toggle('hidden', why === 'host');
   $('endScreen').classList.remove('hidden');
@@ -556,10 +573,11 @@ function mpBegin(cfg, order) {
   for (const p of MP.players.values()) p.alive = true;
   if (mpRounds()) { MP.phase = 'wait'; mpPickSites(); mpBuildPools(); }
   else if (MP.isHost) MP.order.forEach((id, i) => { const p = MP.players.get(id); if (p && p.bot) mpSpawnBot(p, lay[i]); });
+  mpExtraBegin();
   if (MP.pendingRnd) { const pm = MP.pendingRnd; MP.pendingRnd = null; mpOnRound(pm); }
   mpBuildHud();
   mpRenderFeed();
-  if (!mpRounds()) banner(mpTdm() ? 'EQUIPES — META ' + MP.cfg.kl + ' ABATES' : 'TODOS CONTRA TODOS — META ' + MP.cfg.kl + ' ABATES');
+  if (!mpRounds()) banner(MP.cfg.gm === 'gungame' ? 'GUN GAME — SUBA DE NÍVEL A CADA ABATE' : MP.cfg.gm === 'koth' ? 'REI DA COLINA — DOMINE O CÍRCULO' : MP.cfg.gm === 'coop' ? 'COOPERATIVO — SOBREVIVAM ÀS ONDAS' : mpTdm() ? 'EQUIPES — META ' + MP.cfg.kl + ' ABATES' : 'TODOS CONTRA TODOS — META ' + MP.cfg.kl + ' ABATES');
 }
 // pontos de nascimento espalhados (determinísticos: todos calculam igual)
 function mpSpawnLayout(n) {
@@ -598,6 +616,7 @@ function mpRespawn() {
 function mpUpdate(dt) {
   G.protT = Math.max(0, (G.protT || 0) - dt);
   if (mpRounds()) mpHostTick(dt);
+  mpHostTick2(dt);
   if (player.dead) { MP.respawnT -= dt; if (MP.respawnT <= 0) mpRespawn(); }
   MP.sendT -= dt;
   if (MP.sendT <= 0) { MP.sendT = MP_SEND; mpSendState(); }
@@ -655,7 +674,7 @@ function mpDraw(c, p, pts) {
   }
 }
 function mpMinimap(m) {
-  for (const S of MP.sites) { m.fillStyle = MP.cfg.gm === 'zone' ? '#ffd24a' : '#ff9a3a'; m.fillRect(S.x / T * MINI_S - 3, S.y / T * MINI_S - 3, 7, 7); }
+  for (const S of (MP.cfg.gm === 'koth' ? [MP.sites[MP.hill || 0]].filter(Boolean) : MP.sites)) { m.fillStyle = MP.cfg.gm !== 'bomb' ? '#ffd24a' : '#ff9a3a'; m.fillRect(S.x / T * MINI_S - 3, S.y / T * MINI_S - 3, 7, 7); }
   if (MP.bomb && !MP.bomb.defused) { m.fillStyle = '#ff3a2a'; m.fillRect(MP.bomb.x / T * MINI_S - 4, MP.bomb.y / T * MINI_S - 4, 9, 9); }
   for (const r of MP.remotes.values()) {
     if (r.dead || r.stale) continue;
@@ -673,14 +692,15 @@ function mpRenderFeed() { $('mpFeed').innerHTML = MP.feed.map(f => `<div>${f.htm
 function mpTimeLeft() { return Math.max(0, MP.cfg.tl * 60 - G.time); }
 function mpObjText() {
   if (mpRounds()) return mpRoundText();
+  if (MP.cfg.gm === 'gungame' || MP.cfg.gm === 'koth' || MP.cfg.gm === 'coop') return mpObjText2();
   const t = fmtTime(mpTimeLeft());
   if (mpTdm()) return `AZUL ${MP.teamScore[0]} × ${MP.teamScore[1]} VERMELHO · meta ${MP.cfg.kl} · ${t}`;
   return `Todos contra todos · meta ${MP.cfg.kl} abates · ${t}`;
 }
 function mpUpdateHud() {
-  const list = [...MP.players.values()].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  const list = [...MP.players.values()].filter(p => !(MP.cfg.gm === 'coop' && p.bot)).sort((a, b) => mpVal(b) - mpVal(a) || a.deaths - b.deaths);
   const top = list.slice(0, 5);
-  $('mpBoard').innerHTML = top.map(p => `<div class="${p.id === MP.myId ? 'me' : ''}"><i style="background:${mpColor(p.id)}"></i><span>${mpEsc(p.name)}</span><b>${p.kills}</b></div>`).join('');
+  $('mpBoard').innerHTML = top.map(p => `<div class="${p.id === MP.myId ? 'me' : ''}"><i style="background:${mpColor(p.id)}"></i><span>${mpEsc(p.name)}</span><b>${mpVal(p)}</b></div>`).join('');
   const rs = $('mpRespawn');
   if (player.dead) { rs.textContent = MP.respawnT > 30 ? 'Você caiu — assistindo um aliado até o próximo round' : 'Você foi abatido — renascendo em ' + Math.max(1, Math.ceil(MP.respawnT)) + 's'; rs.classList.remove('hidden'); } else rs.classList.add('hidden');
 }
@@ -704,14 +724,17 @@ function renderMp() {
     h += `<div class="mplist">` + [...MP.players.values()].map(p => `<div class="mprow"><i style="background:${mpTdm() ? MP_TEAMS[p.team & 1].color : '#8fdcff'}"></i><span>${mpEsc(p.name)}${p.id === 0 ? ' <em>anfitrião</em>' : ''}${p.id === MP.myId ? ' <em>você</em>' : ''}${p.bot ? ' <em>bot</em>' : ''}</span>${mpTdm() ? `<small>${mpRounds() ? (p.team ? 'TIME 2 · ataca primeiro' : 'TIME 1 · defende primeiro') : MP_TEAMS[p.team & 1].name}</small>` : ''}${MP.isHost && mpTdm() ? `<button class="ghost sm" data-mp="team" data-id="${p.id}">trocar equipe</button>` : ''}</div>`).join('') + `</div>`;
     const dis = MP.isHost ? '' : ' disabled';
     h += `<div class="copts">
-      <label>Modo<select id="mpGm"${dis}><option value="dm"${MP.cfg.gm === 'dm' ? ' selected' : ''}>☠ Todos contra todos</option><option value="tdm"${MP.cfg.gm === 'tdm' ? ' selected' : ''}>⚔ Equipes (Azul × Vermelho)</option><option value="bomb"${MP.cfg.gm === 'bomb' ? ' selected' : ''}>💣 Ataque × Defesa — Bomba</option><option value="zone"${MP.cfg.gm === 'zone' ? ' selected' : ''}>🚩 Ataque × Defesa — Capturar zona</option></select></label>
-      <label>Rounds (Ataque × Defesa)<select id="mpRounds"${dis}>${[2, 4, 6, 8, 10].map(v => `<option value="${v}"${MP.cfg.rounds === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Modo<select id="mpGm"${dis}><option value="dm"${MP.cfg.gm === 'dm' ? ' selected' : ''}>☠ Todos contra todos</option><option value="tdm"${MP.cfg.gm === 'tdm' ? ' selected' : ''}>⚔ Equipes (Azul × Vermelho)</option><option value="bomb"${MP.cfg.gm === 'bomb' ? ' selected' : ''}>💣 Ataque × Defesa — Bomba</option><option value="zone"${MP.cfg.gm === 'zone' ? ' selected' : ''}>🚩 Ataque × Defesa — Capturar zona</option><option value="gungame"${MP.cfg.gm === 'gungame' ? ' selected' : ''}>🔫 Gun Game (arma nova a cada abate)</option><option value="koth"${MP.cfg.gm === 'koth' ? ' selected' : ''}>👑 Rei da Colina</option><option value="coop"${MP.cfg.gm === 'coop' ? ' selected' : ''}>🤝 Cooperativo (ondas de hostis)</option></select></label>
+      <label>Rounds / Ondas (cooperativo = ×2)<select id="mpRounds"${dis}>${[2, 4, 6, 8, 10].map(v => `<option value="${v}"${MP.cfg.rounds === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Meta de abates (outros modos)<select id="mpKl"${dis}>${[5, 10, 15, 25, 40].map(v => `<option value="${v}"${MP.cfg.kl === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Duração<select id="mpTl"${dis}>${[3, 5, 8, 12, 20].map(v => `<option value="${v}"${MP.cfg.tl === v ? ' selected' : ''}>${v} min</option>`).join('')}</select></label>
       <label>Bots (controlados pelo anfitrião)<select id="mpBots"${dis}>${[0, 1, 2, 3, 4, 5, 6, 7, 8].map(v => `<option value="${v}"${MP.cfg.bots === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Tipo de bots<select id="mpBt"${dis}>${Object.keys(MP_BOT_POOL).map(k => `<option value="${k}"${MP.cfg.bt === k ? ' selected' : ''}>${MP_BOT_LABEL[k]}</option>`).join('')}</select></label>
       <label>Horário<select id="mpNight"${dis}><option value="0"${!MP.cfg.night ? ' selected' : ''}>☀ Dia</option><option value="1"${MP.cfg.night ? ' selected' : ''}>🌙 Noite</option></select></label>
     </div>`;
+    if (MP.cfg.gm === 'gungame') h += `<div class="asum"><b>🔫 Gun Game:</b> todos contra todos. Cada abate troca sua arma pela próxima da escada (pistola → submetralhadora → fuzil → escopeta → sniper → metralhadora → faca). Morrer para uma faca faz você perder um nível. Vence quem abater com a faca.</div>`;
+    if (MP.cfg.gm === 'koth') h += `<div class="asum"><b>👑 Rei da Colina:</b> fique sozinho dentro do círculo para pontuar (1 ponto por segundo; disputada = ninguém pontua). A colina muda de lugar a cada ${KOTH_MOVE} s. Meta: ${MP.cfg.kl * 8} pontos.</div>`;
+    if (MP.cfg.gm === 'coop') h += `<div class="asum"><b>🤝 Cooperativo:</b> todos os jogadores no mesmo time contra ondas de hostis com equipamento sorteado. Entre as ondas você recupera vida e munição. Quem cai renasce em 8 s. Vença completando ${MP.cfg.rounds * 2} ondas.</div>`;
     if (mpRounds()) h += `<div class="asum"><b>${MP.cfg.gm === 'bomb' ? '💣 Bomba' : '🚩 Zona'}:</b> ${MP.cfg.gm === 'bomb' ? 'os atacantes plantam a bomba no ponto A ou B (segure E por 3,5 s) e os defensores a desarmam (segure E por 6 s). Não há renascimento dentro do round: quem cai assiste a um aliado.' : 'os atacantes capturam a zona ficando dentro dela sem defensores; os defensores a seguram até o tempo acabar. Todos renascem após 6 s.'} As equipes trocam de lado na metade dos rounds. Defesa = azul · Ataque = vermelho.</div>`;
     h += `<div class="asum">Equipamento: <b>${SAVE.custom.weapons.filter(Boolean).map(id => WMAP[id].name).join(' · ')}</b>. Você nasce com proteção por ${MP_PROT}s e renasce ${MP_RESPAWN}s depois de cair. ${MP.isHost ? 'Quando todos entrarem, inicie a partida.' : 'Aguardando o anfitrião iniciar…'}</div>`;
     if (MP.status) h += `<div class="mpstatus">${mpEsc(MP.status)}</div>`;
@@ -731,7 +754,8 @@ function renderMp() {
   if (keep) { const el = $(keep); if (el && el.focus) { el.focus(); try { const v = el.value; el.value = ''; el.value = v; } catch (_) { /* ignora */ } } }
 }
 function mpCfgChanged() {
-  MP.cfg.gm = MP_GAMEMODES.includes($('mpGm').value) ? $('mpGm').value : 'dm'; MP.cfg.rounds = +$('mpRounds').value; MP.cfg.kl = +$('mpKl').value; MP.cfg.tl = +$('mpTl').value; MP.cfg.night = $('mpNight').value === '1';
+  MP.cfg.gm = MP_GAMEMODES.includes($('mpGm').value) ? $('mpGm').value : 'dm'; MP.cfg.rounds = +$('mpRounds').value;
+  if (MP.cfg.gm === 'coop') for (const p of MP.players.values()) if (!p.bot) p.team = 0; MP.cfg.kl = +$('mpKl').value; MP.cfg.tl = +$('mpTl').value; MP.cfg.night = $('mpNight').value === '1';
   MP.cfg.bots = +$('mpBots').value; MP.cfg.bt = $('mpBt').value;
   mpSyncBots();
   mpBroadcastLobby();

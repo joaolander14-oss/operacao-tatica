@@ -307,6 +307,18 @@ function render() {
     if (d.k === 'blood') { c2.fillStyle = 'rgba(110,12,12,' + d.a + ')'; c2.beginPath(); c2.ellipse(d.x, d.y, d.r, d.r * .75, 0, 0, PI2); c2.fill(); }
     else if (d.k === 'pool') { const g = c2.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(90,6,6,' + d.a + ')'); g.addColorStop(.75, 'rgba(110,10,10,' + d.a * .8 + ')'); g.addColorStop(1, 'rgba(110,10,10,0)'); c2.fillStyle = g; c2.beginPath(); c2.arc(d.x, d.y, d.r, 0, PI2); c2.fill(); }
     else if (d.k === 'scorch') { const g = c2.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(10,10,10,' + d.a + ')'); g.addColorStop(1, 'rgba(10,10,10,0)'); c2.fillStyle = g; c2.beginPath(); c2.arc(d.x, d.y, d.r, 0, PI2); c2.fill(); }
+    else if (d.k === 'wsplat') {                   // respingo na parede: mancha irregular com gotas e escorrido
+      c2.save(); c2.translate(d.x, d.y); c2.rotate(d.ang);
+      const R = d.r, h0 = (i) => hash(i + ((d.x * 3) | 0), ((d.y * 3) | 0) + i * 7);
+      c2.fillStyle = 'rgba(95,8,8,' + d.a + ')'; c2.beginPath();
+      for (let i = 0; i < 10; i++) { const a = i / 10 * PI2, rr = R * (.55 + h0(i) * .75) * (Math.cos(a) > 0 ? .55 : 1.1); const px = Math.cos(a) * rr * 1.2 - R * .2, py = Math.sin(a) * rr; if (i) c2.lineTo(px, py); else c2.moveTo(px, py); }
+      c2.closePath(); c2.fill();
+      c2.fillStyle = 'rgba(130,14,12,' + d.a * .8 + ')';
+      for (let i = 0; i < 6; i++) { const rr = R * (.8 + h0(i + 20) * 1.6), a = (h0(i + 40) - .5) * 1.9, sz = 1 + h0(i + 60) * R * .16; c2.beginPath(); c2.arc(-Math.cos(a) * rr, Math.sin(a) * rr, sz, 0, PI2); c2.fill(); }
+      c2.strokeStyle = 'rgba(95,8,8,' + d.a * .7 + ')'; c2.lineWidth = Math.max(1.2, R * .12); c2.lineCap = 'round';
+      for (let i = 0; i < 2; i++) { const yy = (h0(i + 80) - .5) * R; c2.beginPath(); c2.moveTo(-R * .3, yy); c2.lineTo(-R * (1.1 + h0(i + 90) * 1.2), yy + (h0(i + 100) - .5) * R * .5); c2.stroke(); }
+      c2.restore();
+    }
     else if (d.k === 'debris') { c2.fillStyle = '#7a5a2c'; for (let i = 0; i < 5; i++) c2.fillRect(d.x + hash(i, d.x | 0) * 28 - 14, d.y + hash(d.y | 0, i) * 28 - 14, 5, 3); }
   }
   for (const h of holes) {

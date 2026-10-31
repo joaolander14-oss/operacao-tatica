@@ -25,9 +25,9 @@ function mpPickSites() {
   const far = cands.filter(c => Math.hypot(c.x - spawnT.x, c.y - spawnT.y) > 20);
   const pool = (far.length >= 2 ? far : cands.length >= 2 ? cands : SPOTS.map(s => ({ x: s.x, y: s.y }))).slice();
   for (let i = pool.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  const sites = [pool[0]];
-  if (MP.cfg.gm === 'bomb') sites.push(pool.find(c => c !== pool[0] && Math.hypot(c.x - pool[0].x, c.y - pool[0].y) > 10) || pool[1] || pool[0]);
-  MP.sites = sites.map((s, i) => ({ x: s.x * T + T / 2, y: s.y * T + T / 2, tx: s.x, ty: s.y, name: MP.cfg.gm === 'zone' ? 'Z' : 'AB'[i] }));
+  const want = MP.cfg.gm === 'bomb' ? 2 : MP.cfg.gm === 'koth' ? 4 : 1, sites = [pool[0]];
+  while (sites.length < want) sites.push(pool.find(c => !sites.includes(c) && sites.every(s => Math.hypot(c.x - s.x, c.y - s.y) > 10)) || pool.find(c => !sites.includes(c)) || pool[0]);
+  MP.sites = sites.map((s, i) => ({ x: s.x * T + T / 2, y: s.y * T + T / 2, tx: s.x, ty: s.y, name: MP.cfg.gm === 'bomb' ? 'AB'[i] : MP.cfg.gm === 'koth' ? 'H' : 'Z' }));
 }
 function mpBuildPools() {
   const near = (tx, ty, d) => SPOTS.filter(s => Math.hypot(s.x - tx, s.y - ty) < d);
@@ -176,14 +176,15 @@ function mpAfter(dt) {
 /* ---------- Bots com objetivo ---------- */
 function mpBotObjective(e) {
   if (!MP.sites.length) return null;
+  if (MP.cfg.gm === 'koth') return MP.sites[MP.hill || 0];
   if (MP.cfg.gm === 'zone') return MP.sites[0];
   if (MP.bomb && !MP.bomb.defused) return MP.bomb;
   return MP.sites[(e.site || 0) % MP.sites.length];
 }
 function mpBotPatrol(e) {
-  if (!mpRounds() || MP.phase !== 'live') return false;
+  if (!((mpRounds() && MP.phase === 'live') || MP.cfg.gm === 'koth')) return false;
   const o = mpBotObjective(e);
-  if (!o || Math.random() < .2) return false;
+  if (!o || (MP.cfg.gm !== 'koth' && Math.random() < .2)) return false;
   pathTo(e, o.x + rand(-28, 28), o.y + rand(-28, 28), -1);
   return !!e.path;
 }
@@ -212,19 +213,20 @@ const mpSpec = () => (MP.on && MP.cfg.gm === 'bomb' && player && player.dead && 
 
 /* ---------- Desenho, seta de objetivo e texto ---------- */
 function mpDrawSites(c) {
-  const t = G.time, zone = MP.cfg.gm === 'zone';
-  for (const S of MP.sites) {
-    const R = zone ? MPR.ZONE_R : MPR.SITE_R, col = zone ? (MP.cap > 0 ? '255,100,80' : '255,210,90') : '255,200,60';
+  const t = G.time, zone = MP.cfg.gm !== 'bomb', koth = MP.cfg.gm === 'koth';
+  for (const S of (koth ? [MP.sites[MP.hill || 0]].filter(Boolean) : MP.sites)) {
+    const R = koth ? KOTH_R : zone ? MPR.ZONE_R : MPR.SITE_R, col = zone ? (MP.cap > 0 ? '255,100,80' : '255,210,90') : '255,200,60';
     c.save(); c.translate(S.x, S.y);
     c.fillStyle = `rgba(${col},${.1 + .05 * Math.sin(t * 3)})`; c.beginPath(); c.arc(0, 0, R, 0, PI2); c.fill();
     c.strokeStyle = `rgba(${col},.8)`; c.lineWidth = 3; c.setLineDash([10, 8]); c.rotate(t * .4); c.beginPath(); c.arc(0, 0, R, 0, PI2); c.stroke(); c.setLineDash([]); c.rotate(-t * .4);
-    if (zone && MP.cap > 0) { c.strokeStyle = '#ff6a5a'; c.lineWidth = 5; c.beginPath(); c.arc(0, 0, R - 6, -Math.PI / 2, -Math.PI / 2 + PI2 * MP.cap / 100); c.stroke(); }
+    if (MP.cfg.gm === 'zone' && MP.cap > 0) { c.strokeStyle = '#ff6a5a'; c.lineWidth = 5; c.beginPath(); c.arc(0, 0, R - 6, -Math.PI / 2, -Math.PI / 2 + PI2 * MP.cap / 100); c.stroke(); }
     c.fillStyle = 'rgba(255,255,255,.88)'; c.font = 'bold 30px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 4;
     c.strokeText(S.name, 0, 2); c.fillText(S.name, 0, 2);
     c.restore();
   }
 }
 function mpObjTarget() {
+  if (MP.cfg.gm === 'koth') { const S = MP.sites[MP.hill || 0]; return S && !player.dead ? { x: S.x, y: S.y, col: '#ffd24a' } : null; }
   if (!mpRounds() || !MP.sites.length || player.dead) return null;
   const atk = mpSide(MP.myId) === 1;
   if (MP.cfg.gm === 'bomb' && MP.bomb && !MP.bomb.defused) return { x: MP.bomb.x, y: MP.bomb.y, col: atk ? '#ff9a3a' : '#6fd8ff' };

@@ -167,6 +167,7 @@ function closeArsenal() {
 }
 function openInventory() {
   if (G.state !== 'play' && G.state !== 'paused') return;
+  if (MP.on && MP.cfg.gm === 'gungame') { banner('GUN GAME: SEM INVENTÁRIO'); return; }
   $('pauseScreen').classList.add('hidden');
   releaseSticks(); input.mouseDown = false; input.act = false; input.keys.clear();
   G.state = 'inv'; document.body.classList.remove('playing');

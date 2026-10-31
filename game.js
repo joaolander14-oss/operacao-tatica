@@ -20,7 +20,7 @@ const G = {
 let SPOTS = [], BSPOTS = [];
 let player, allies = [], enemies = [], bullets = [], grenades = [], charges = [], interacts = [];
 let particles = [], decals = [], holes = [], pickups = [], texts = [], flashes = [], TARGETS = [];
-let smokes = [], fires = [], flares = [], mines = [];
+let smokes = [], fires = [], flares = [], mines = [], BOTT = [];
 let touchMode = false, VIS = BASE_VIS;
 const cam = { x: 0, y: 0 };
 let vw = innerWidth, vh = innerHeight, dpr = 1, S = 1;
@@ -132,7 +132,7 @@ const sfx = (n, v) => { if (SFX[n]) SFX[n](v); };
 const SND_PITCH = {
   '.22': 1.7, '.32': 1.45, '.380': 1.32, '9mm': 1.22, '9x18': 1.2, '7.62x25': 1.28, '5.7': 1.5, '4.6': 1.5, '.45': .95, '10mm': 1.02, '.357': .95, '.44': .8, '.50AE': .7, '.50BW': .75,
   '5.56': 1.22, '5.45': 1.16, '5.8': 1.2, '.300': 1.0, '6mm': 1.12, '6.5g': 1.0, '7.62x39': .95, '7.92k': .95, '6.8': .9, '.30carb': 1.12, '.243': 1.06, '.308': .85, '6.5': .92,
-  '7.62x54': .8, '7.92': .8, '.30-06': .78, '.30-30': .9, '.375': .7, '.338': .65, '.300WM': .7, '.408': .6, '.416': .58, '.50BMG': .5, '14.5': .45, '.45-70': .7, '9x39': 1.05,
+  '7.62x54': .8, '7.92': .8, '.30-06': .78, '.30-30': .9, '.375': .7, '.338': .65, '.300WM': .7, '.408': .6, '.416': .58, '.50BMG': .5, '14.5': .45, '.45-70': .7, '9x39': 1.05, '.38sp': 1.0, '.357sig': 1.1, '6.5x55': .9,
   '12ga': .6, '12ga-slug': .55, '12ga-flech': .62, '12ga-dragon': .6, '12ga-rubber': .7, '12ga-frag': .5, '10ga': .5, '16ga': .66, '20ga': .72, '20ga-slug': .62, '.410': .92, '.410-slug': .8, '23mm': .4, '40mm': .5,
 };
 const SUBSONIC = new Set(['.22', '.32', '.380', '9mm', '9x18', '.45', '10mm', '9x39', '.357', '.44', '.50AE', '.45-70']);
@@ -213,7 +213,37 @@ function spawnPart(o) {
   particles.push(p);
   if (particles.length > 900) particles.shift();
 }
-function addDecal(d) { decals.push(d); if (decals.length > 420) decals.shift(); }
+function addDecal(d) { decals.push(d); if (decals.length > 700) decals.shift(); }
+// respingo de sangue nas paredes (estilo CS2) e no chão, na direção do tiro; cresce com o dano
+function bloodWall(x, y, ang, L, dmg, head) {
+  const reach = clamp(90 + dmg * 2.4, 100, 340), c = Math.cos(ang), s = Math.sin(ang);
+  const wd = castRay(x, y, ang, reach, L);
+  if (wd < reach - 1) addDecal({ k: 'wsplat', x: x + c * wd, y: y + s * wd, ang, r: clamp(6 + dmg * .26, 7, 30), a: .88, L, s: Math.random() });
+  const n = Math.min(6, 1 + ((dmg / 22) | 0));
+  for (let i = 0; i < n; i++) { const d = rand(14, Math.max(16, Math.min(wd, reach))); addDecal({ k: 'blood', x: x + c * d + rand(-7, 7), y: y + s * d + rand(-7, 7), r: rand(2, 5.5), a: .6, L }); }
+  const wb = castRay(x, y, ang + Math.PI, 80, L);                                  // respingo de entrada, se houver parede atrás
+  if ((head || dmg > 40) && wb < 79) addDecal({ k: 'wsplat', x: x - c * wb, y: y - s * wb, ang: ang + Math.PI, r: clamp(5 + dmg * .12, 6, 16), a: .8, L, s: Math.random() });
+}
+// impulso do corpo: depende da força do tiro (dano + penetração)
+function corpseKick(force, ang) {
+  const sp = clamp(force * 3.6, 0, 720);
+  return sp < 40 ? {} : { vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, spin: rand(-7, 7) };
+}
+function moveCorpse(d, dt) {
+  const sp = Math.hypot(d.vx, d.vy);
+  if (sp < 12) { d.vx = d.vy = 0; return; }
+  const steps = Math.max(1, Math.ceil(sp * dt / 6)), sdt = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    const nx = d.x + d.vx * sdt, ny = d.y + d.vy * sdt;
+    if (solidF(Math.floor(nx / T), Math.floor(ny / T), d.L)) {
+      if (sp > 150) addDecal({ k: 'wsplat', x: d.x, y: d.y, ang: Math.atan2(d.vy, d.vx), r: clamp(sp * .03, 6, 22), a: .85, L: d.L, s: Math.random() });
+      d.vx = d.vy = 0; return;
+    }
+    d.x = nx; d.y = ny; d.trail = (d.trail || 0) + Math.hypot(d.vx, d.vy) * sdt;
+    if (d.trail > 22) { d.trail = 0; addDecal({ k: 'blood', x: d.x + rand(-3, 3), y: d.y + rand(-3, 3), r: rand(2, 4.5), a: .55, L: d.L }); }
+  }
+  const k = Math.exp(-4.4 * dt); d.vx *= k; d.vy *= k; d.ang += (d.spin || 0) * dt * Math.min(1, sp / 260);
+}
 function addHole(x, y, L, k) { holes.push({ x, y, L, k }); if (holes.length > 500) holes.shift(); }
 function addText(x, y, txt, color = '#fff', size = 13) { texts.push({ x, y, txt, color, size, life: .8, max: .8 }); }
 function shake(v) { G.shake = Math.min(14, G.shake + v); }
@@ -267,7 +297,7 @@ function explode(x, y, radius, dmg, L) {
     if (t.L !== L) f *= .35; else if (!hasLOS(x, y, t.x, t.y, L)) f *= .35;
     blastHit(t, dmg * (.25 + .75 * f) * (isPlayer ? .5 : 1), Math.atan2(t.y - y, t.x - x));
   };
-  if (!G.eSide) for (const e of enemies) if (!e.dead && !(MP.on && e.mpId != null && mpFriend(e.mpId))) { if (e.mpId != null) e.lastW = 'boom'; blast(e, false); }
+  if (!G.eSide) for (const e of enemies) if (!e.dead && !(MP.on && e.mpId != null && (G.src != null ? !mpHostile(G.src, e.mpId) : mpFriend(e.mpId)))) { if (e.mpId != null) e.lastW = 'boom'; blast(e, false); }
   for (const a of allies) { if (a.dead || a.bound) continue; const d = Math.hypot(a.x - x, a.y - y); if (d < radius + a.r) damageAlly(a, dmg * .5 * (1 - d / (radius + a.r)), Math.atan2(a.y - y, a.x - x)); }
   if (!player.dead && (!MP.on || mpHurtFrom(G.src))) blast(player, true);
 
@@ -379,6 +409,7 @@ function applyHit(t, part, dmg, o) {
   const after = stateOf(P.hp / P.max);
   t.showT = 3; t.lastPart = part;
   recalcFx(t);
+  { const ha = o.ang || 0, force = d * .6 + (o.pen || 0) * 14; t.lastAng = ha; t.lastForce = force; if (t === player) { G.lastAng = ha; G.lastForce = force; } if (d > 6) bloodWall(t.x, t.y, ha, t.L, d, part === 'head'); }
 
   // sangue e efeitos
   const ang = o.ang || 0, big = d > 18;
@@ -512,7 +543,7 @@ function die(ang) {
   const p = player;
   if (p.dead) return;
   p.dead = true; p.hp = 0;
-  addDecal({ k: 'corpse', x: p.x, y: p.y, ang: p.ang, who: 'player', L: p.L });
+  addDecal({ k: 'corpse', x: p.x, y: p.y, ang: p.ang, who: 'player', L: p.L, ...corpseKick(G.lastForce || 0, G.lastAng != null ? G.lastAng : (ang || 0)) });
   addDecal({ k: 'pool', x: p.x, y: p.y, r: 6, max: 20, a: .8, L: p.L });
   bloodBurst(p.x, p.y, ang || 0, 16, p.L, true);
   G.endTimer = 1.6; G.won = false;
@@ -843,7 +874,7 @@ function updateGrenades(dt) {
     g.x = nx; g.y = ny;
     if (g.t > 0) continue;
     grenades.splice(i, 1);
-    G.src = g.owner; G.eSide = g.by === 'e';
+    G.src = g.owner; G.eSide = g.by === 'e' && g.owner == null;
     switch (g.kind) {
       case 'flash': flashBang(g); break;
       case 'smoke': smokes.push({ x: g.x, y: g.y, r: 72, t: 14, L: g.L }); sfx('throw'); break;
@@ -1330,8 +1361,9 @@ function updateEnemy(e, dt) {
   if (e.senseT <= 0) {
     e.senseT = .12 + Math.random() * .05;
     let best = null, bd = 1e9;
-    for (const c of TARGETS) {
-      if (e.mpId != null && mpTdm() && mpTargetTeam(c) === e.team) continue;
+    for (const c of (e.mpId != null && BOTT.length ? TARGETS.concat(BOTT) : TARGETS)) {
+      if (c === e) continue;
+      if (e.mpId != null && !mpHostile(e.mpId, mpIdOf(c))) continue;
       if (!canView(e.L, c.L, c.x, c.y)) continue;
       const d = Math.hypot(c.x - e.x, c.y - e.y);
       if (d >= ty.vision || d >= bd) continue;
@@ -1353,9 +1385,9 @@ function updateEnemy(e, dt) {
   const spd = ty.speed * spdMul * PACE.enemy;
 
   if (e.state === 'patrol') {
-    if (e.path && e.pi < e.path.length) { followPath(e, spd * .5, dt); e.ang = turnToward(e.ang, e.moveAng, dt * 4); }
+    if (e.path && e.pi < e.path.length) { followPath(e, spd * (e.mpId != null && MP.cfg.gm === 'koth' ? .9 : .5), dt); e.ang = turnToward(e.ang, e.moveAng, dt * 4); }
     else {
-      e.idle -= dt; e.ang += Math.sin(G.time * .8 + e.walk) * dt * .6;
+      e.idle -= dt * (e.mpId != null && MP.cfg.gm === 'koth' ? 3 : 1); e.ang += Math.sin(G.time * .8 + e.walk) * dt * .6;
       if (e.idle <= 0) { e.idle = rand(1.5, 4); patrolTo(e); }
     }
   } else if (e.state === 'search') {
@@ -1380,6 +1412,7 @@ function updateEnemy(e, dt) {
             e.mcd = ty.mdelay; e.swing = .25; sfx('melee');
             if (tg === player) { if (MP.on && e.mpId != null) { G.lastHitBy = e.mpId; G.lastHitW = ty.weapon; G.lastHitT = G.time; } applyHit(player, rollMeleePart(), ty.mdmg, { pen: 1, ang: toT }); }
             else if (tg.isRemote) mpBotMelee(e, tg, toT);
+            else if (tg.mpId != null) { G.src = e.mpId; tg.lastW = ty.weapon; applyHit(tg, rollMeleePart(), ty.mdmg, { pen: 1, ang: toT }); G.src = null; }
             else damageAlly(tg, ty.mdmg, toT);
           }
         }
@@ -1469,10 +1502,10 @@ function dropLoot(e) {
 
 function killEnemy(e, ang, part) {
   if (e.dead) return;
-  if (e.mpId != null && MP.on) { e.dead = true; addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L }); addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L }); bloodBurst(e.x, e.y, ang, 14, e.L, true); sfx('kill'); mpBotDied(e); return; }
+  if (e.mpId != null && MP.on) { e.dead = true; addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L, ...corpseKick(e.lastForce || 0, e.lastAng != null ? e.lastAng : ang) }); addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L }); bloodBurst(e.x, e.y, ang, 14, e.L, true); sfx('kill'); mpBotDied(e); return; }
   e.dead = true; G.kills++; G.earned += e.ty.credit; sfx('kill');
   if (part === 'head') G.heads++;
-  addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L });
+  addDecal({ k: 'corpse', x: e.x, y: e.y, ang: ang + rand(-.5, .5), who: e.key, scale: e.ty.scale, L: e.L, ...corpseKick(e.lastForce || 0, e.lastAng != null ? e.lastAng : ang) });
   addDecal({ k: 'pool', x: e.x, y: e.y, r: 6, max: rand(14, 22), a: .8, L: e.L });
   bloodBurst(e.x, e.y, ang, 14, e.L, true);
   if (e.vip) { dropPickup(e.x, e.y, true, true, e.L); banner('ALVO VIP ELIMINADO'); }
@@ -1490,7 +1523,7 @@ function bulletTile(b, tx, ty) {
   if (b.flame) return false;
   const pass = b.pw >= m.cost;
   if (k === K.WINDOW) breakWindow(tx, ty, b.L);
-  if (b.breaks && k === K.CRATE) destroyCrate(tx, ty, b.L);
+  if (k === K.CRATE) { if (b.breaks) destroyCrate(tx, ty, b.L); else hitCrate(tx, ty, b.L, b.dmg); }
   impactFx(b, k);
   addHole(b.x, b.y, b.L, k === K.WINDOW ? 'glass' : k === K.DOOR ? 'door' : 'wall');
   if (!pass) return false;
@@ -1501,7 +1534,7 @@ function updateBullets(dt) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     let alive = true;
-    G.src = (b.from === 'n' || b.owner != null) ? b.owner : null; G.eSide = b.from === 'e';
+    G.src = (b.from === 'n' || b.owner != null) ? b.owner : null; G.eSide = b.from === 'e' && b.owner == null;
     const step = b.speed * dt, n = Math.max(1, Math.ceil(step / 8)), sd = step / n;
     for (let s = 0; s < n && alive; s++) {
       b.x += b.dx * sd; b.y += b.dy * sd; b.dist += sd;
@@ -1551,6 +1584,15 @@ function updateBullets(dt) {
             alive = false; break;
           }
         }
+        // balas de bots também acertam bots inimigos (conforme o modo)
+        if (alive && b.owner != null && MP.on && BOTT.length) for (const e2 of BOTT) {
+          if (e2.dead || e2.mpId === b.owner || e2.L !== b.L || !mpHostile(b.owner, e2.mpId)) continue;
+          const dx = e2.x - b.x, dy = e2.y - b.y, rr = e2.r + 2;
+          if (dx * dx + dy * dy >= rr * rr) continue;
+          if (b.rocket) explode(b.x, b.y, b.radius, b.dmg, b.L);
+          else { G.src = b.owner; e2.lastW = b.id; applyHit(e2, rollPart(e2, b.x, b.y), b.dmg, { pen: b.pw, ang: Math.atan2(b.dy, b.dx) }); G.src = b.owner; }
+          alive = false; break;
+        }
       }
       if (alive && b.dist >= b.range) {
         if (b.rocket) explode(b.x, b.y, b.radius, b.dmg, b.L);
@@ -1577,7 +1619,10 @@ function updateParticles(dt) {
     if (p.grow) p.size = Math.max(.1, p.size + p.grow * dt);
     if ((p.kind === 'casing' || p.kind === 'mag') && solidF(Math.floor(p.x / T), Math.floor(p.y / T), p.L >= 0 ? p.L : -1)) { p.vx = p.vy = 0; }
   }
-  for (const d of decals) if (d.k === 'pool' && d.r < d.max) d.r += dt * 3.5;
+  for (const d of decals) {
+    if (d.k === 'pool') { if (d.r < d.max) d.r += dt * 3.5; }
+    else if (d.k === 'corpse' && (d.vx || d.vy)) moveCorpse(d, dt);
+  }
   for (let i = texts.length - 1; i >= 0; i--) { const t = texts[i]; t.life -= dt; t.y -= 26 * dt; if (t.life <= 0) texts.splice(i, 1); }
   for (let i = flashes.length - 1; i >= 0; i--) { flashes[i].life -= dt; if (flashes[i].life <= 0) flashes.splice(i, 1); }
 }
@@ -1644,6 +1689,7 @@ function objectiveText() {
     case 'vip': return G.extractOpen ? 'Alvo eliminado — vá à extração (H)' : 'Elimine o comandante inimigo';
     case 'sandbox': return 'Treino livre — ondas contínuas (Esc para sair)';
     case 'mp': return mpObjText();
+    case 'timeattack': return 'Contra o relógio — ' + G.kills + '/' + G.target + ' abates · ' + fmtTime(Math.max(0, G.limit - G.time));
     case 'survival': return G.waveState === 'break' ? 'Onda ' + (G.wave + 1) + ' em ' + Math.ceil(G.waveTimer) + 's' : 'Onda ' + G.wave + '/' + G.waveTarget + ' — ' + enemies.length + ' restantes';
   }
   return '';
@@ -1657,6 +1703,20 @@ function nearFree(x, y, r) {
   return { x, y };
 }
 const allowType = k => (!G.types || !G.types.length || G.types.includes(k)) ? k : G.types[(Math.random() * G.types.length) | 0];
+// gera n inimigos sorteados longe do jogador (inclusive em outros andares)
+function spawnFoes(n) {
+  for (let i = 0; i < n; i++) {
+    let s = null, sL = -1;
+    if (BSPOTS.length && Math.random() < .3) { const bsp = BSPOTS[(Math.random() * BSPOTS.length) | 0]; if (bsp.u.length) { s = bsp.u[(Math.random() * bsp.u.length) | 0]; sL = s.L; } }
+    if (!s) for (let k = 0; k < 40; k++) {
+      const c = SPOTS[(Math.random() * SPOTS.length) | 0], px = c.x * T + T / 2, py = c.y * T + T / 2;
+      if (Math.hypot(px - player.x, py - player.y) > 480 && (player.L >= 0 || !hasLOS(px, py, player.x, player.y, -1))) { s = c; break; }
+    }
+    if (!s) s = SPOTS[(Math.random() * SPOTS.length) | 0];
+    const e = makeEnemy(rollFoe(clamp(.1 + .08 * (G.level - 1) + G.time / 400 + rand(-.1, .2), 0, 1), G.types), s.x * T + T / 2, s.y * T + T / 2, sL);
+    enemies.push(e); goSearch(e, { x: player.x + rand(-80, 80), y: player.y + rand(-80, 80) }, player.L);
+  }
+}
 function startWave() {
   G.wave++; G.waveState = 'fight';
   const n = G.mode === 'sandbox' && G.custom ? G.custom.enemies : Math.min(30, 4 + 2 * G.wave + G.level - 1);
@@ -1687,6 +1747,12 @@ function supplyDrop() {
 
 function checkObjectives(dt) {
   switch (G.mode) {
+    case 'timeattack': {
+      G.extractOpen = false; G.waveTimer -= dt;
+      if (G.waveTimer <= 0 && enemies.length < Math.min(14, 5 + G.level * 2)) { spawnFoes(2); G.waveTimer = 2.2; }
+      if (G.state === 'play' && (G.kills >= G.target || G.time >= G.limit)) { G.reason = G.kills >= G.target ? '' : 'Tempo esgotado'; endMission(G.kills >= G.target); return; }
+      break;
+    }
     case 'mp': G.extractOpen = false; break;
     case 'kill': G.extractOpen = enemies.length === 0; break;
     case 'intel': case 'sabotage': G.extractOpen = G.objDone >= G.objTotal; break;
@@ -1802,6 +1868,7 @@ function startMission(mode, level, custom) {
   switch (mode) {
     case 'sandbox': G.waveTimer = 1; break;
     case 'mp': break;
+    case 'timeattack': G.waveTimer = 1; G.limit = 180; G.target = 18 + 6 * level; break;
     case 'kill': addRandom(cnt(Math.min(28, 8 + 3 * (level - 1)))); break;
     case 'intel': {
       addRandom(cnt(Math.min(26, 8 + 2 * (level - 1))));
@@ -1909,6 +1976,7 @@ function update(dt) {
   G.time += dt; G.dt = dt;
   TARGETS = [];
   if (!player.dead && !(MP.on && G.protT > 0)) TARGETS.push(player);
+  BOTT = (MP.on && MP.botN) ? enemies.filter(b => b.mpId != null && !b.dead) : [];
   if (MP.on && MP.isHost && MP.botN) for (const r of MP.remotes.values()) if (!r.bot && !r.dead && !r.pr && !r.stale) TARGETS.push(r);
   for (const a of allies) if (!a.dead && !a.bound) TARGETS.push(a);
 

@@ -6,9 +6,9 @@
    Camadas: L = -1 térreo/exterior · L >= 0 = 2º andar do prédio de índice L
    ===================================================================== */
 
-const MAXF = 4;                                   // andares máximos por prédio (0 = térreo)
+const MAXF = 8;                                   // andares máximos por prédio (0 = térreo)
 let grid0 = new Uint8Array(NT), grid1 = new Uint8Array(NT), ftype = new Uint8Array(NT), bldAt = new Int8Array(NT).fill(-1);
-let gridF = [grid0, grid1, new Uint8Array(NT), new Uint8Array(NT)];   // um grid por andar
+let gridF = Array.from({ length: MAXF }, (_, i) => i === 0 ? grid0 : i === 1 ? grid1 : new Uint8Array(NT));   // um grid por andar
 let layerBld = [], layerFloor = [], mapUFloor = 0, wallHp = new Map();                    // camada L >= 0 = (prédio, andar)
 let blds = [], doors = [], reachN = new Uint8Array(MAXF * NT), spawnT = { x: 4, y: MH - 5 }, extT = { x: MW - 5, y: 4 };
 
@@ -134,13 +134,31 @@ function findPath(sx, sy, sL, tx, ty, tL) {
 /* =====================================================================
    GERAÇÃO DO MUNDO
    ===================================================================== */
+// modelos de construção: p = probabilidade, sz = [w min, w max, h min, h max], fl = andares [min, max], wall: W concreto / B tijolo / O madeira
+const BMODELS = [
+  { id: 'office', p: .12, sz: [9, 13, 7, 10], fl: [2, 4], wall: 'W', off: 1, wide: 1 },
+  { id: 'edificio', p: .08, sz: [8, 11, 6, 8], fl: [3, 5], wall: 'W', off: 1 },
+  { id: 'torre', p: .05, sz: [8, 10, 7, 9], fl: [5, 8], wall: 'W', off: 1 },
+  { id: 'hotel', p: .04, sz: [11, 14, 7, 9], fl: [4, 6], wall: 'W', off: 1, wide: 1 },
+  { id: 'apto', p: .07, sz: [8, 10, 6, 8], fl: [3, 5], wall: 'B' },
+  { id: 'mansao', p: .05, sz: [10, 13, 8, 10], fl: [2, 3], wall: 'B' },
+  { id: 'sobrado', p: .08, sz: [7, 9, 6, 8], fl: [2, 3], wall: 'B' },
+  { id: 'casa', p: .13, sz: [6, 8, 5, 7], fl: [1, 1], wall: 'B' },
+  { id: 'bangalo', p: .08, sz: [8, 10, 6, 8], fl: [1, 1], wall: 'B' },
+  { id: 'chale', p: .05, sz: [6, 8, 6, 7], fl: [2, 2], wall: 'O' },
+  { id: 'cabana', p: .07, sz: [5, 6, 5, 6], fl: [1, 1], wall: 'O', room: 1 },
+  { id: 'galpao', p: .06, sz: [10, 13, 6, 8], fl: [1, 1], wall: 'O', wide: 1, room: 1, cr: [4, 8] },
+  { id: 'fabrica', p: .04, sz: [12, 14, 8, 9], fl: [1, 2], wall: 'W', wide: 1, room: 1, cr: [5, 9] },
+  { id: 'garagem', p: .03, sz: [5, 6, 4, 5], fl: [1, 1], wall: 'B', wide: 1, room: 1, cr: [1, 2] },
+  { id: 'posto', p: .03, sz: [6, 7, 5, 6], fl: [1, 1], wall: 'W', wide: 1, room: 1, cr: [1, 2] },
+];
+const BMOD = Object.fromEntries(BMODELS.map(m => [m.id, m]));
 function genWorld(seed) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const rnd = mulberry32(seed + attempt * 7919);
     const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
     const shuffle = a => a.sort(() => rnd() - .5);
-    const g0 = new Uint8Array(NT), g1 = new Uint8Array(NT), g2 = new Uint8Array(NT), g3 = new Uint8Array(NT), f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
-    const gridsF = [g0, g1, g2, g3];
+    const gridsF = Array.from({ length: MAXF }, () => new Uint8Array(NT)), g0 = gridsF[0], g1 = gridsF[1], f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
     const idx = (x, y) => y * MW + x;
     const dl = [], bl = [];
     for (let x = 0; x < MW; x++) { g0[idx(x, 0)] = K.WALL; g0[idx(x, MH - 1)] = K.WALL; }
@@ -172,12 +190,12 @@ function genWorld(seed) {
       }
     };
 
-    for (let tries = 0; tries < 500 && bl.length < 12; tries++) {
-      const mr = rnd(), model = mr < .22 ? 'office' : mr < .35 ? 'edificio' : mr < .53 ? 'casa' : mr < .63 ? 'cabana' : mr < .73 ? 'bangalo' : mr < .82 ? 'galpao' : mr < .94 ? 'sobrado' : 'garagem';
-      const office = model === 'office' || model === 'edificio', wide = model === 'office' || model === 'galpao' || model === 'garagem';
-      const F = model === 'office' ? ri(2, 4) : model === 'edificio' ? ri(3, 4) : model === 'sobrado' ? ri(2, 3) : 1;
-      const SZ = { office: [9, 13, 7, 10], edificio: [8, 11, 6, 8], casa: [6, 8, 5, 7], cabana: [5, 6, 5, 6], bangalo: [8, 10, 6, 8], galpao: [10, 13, 6, 8], sobrado: [7, 9, 6, 8], garagem: [5, 6, 4, 5] }[model];
-      const wallK = office ? K.WALL : (model === 'cabana' || model === 'galpao') ? K.WOODW : K.BRICK;
+    for (let tries = 0; tries < 600 && bl.length < 14; tries++) {
+      let mr = rnd(), model = 'casa';
+      for (const m of BMODELS) { mr -= m.p; if (mr < 0) { model = m.id; break; } }
+      const MD = BMOD[model], office = !!MD.off, wide = !!MD.wide;
+      const F = MD.fl[0] === MD.fl[1] ? MD.fl[0] : ri(MD.fl[0], MD.fl[1]), SZ = MD.sz;
+      const wallK = MD.wall === 'W' ? K.WALL : MD.wall === 'O' ? K.WOODW : K.BRICK;
       const w = ri(SZ[0], SZ[1]), h = ri(SZ[2], SZ[3]), x = ri(3, MW - w - 3), y = ri(3, MH - h - 3);
       if (x < 14 && y + h > MH - 14) continue;
       if (x + w > MW - 14 && y < 14) continue;
@@ -210,7 +228,7 @@ function genWorld(seed) {
         const gx = ri(x + 1, x + w - 2); g[idx(gx, p)] = K.DOOR; dl.push({ idx: idx(gx, p), fl: floorIdx, open: false, t: 0 });
         return p;
       };
-      if (model === 'cabana' || model === 'galpao' || model === 'garagem') { /* ambiente único */ } else if (w >= 10) px = partition(g0, 0, true); else if (h >= 8 || (w >= 7 && !office)) { if (w >= 7 && !office && h < 8) px = partition(g0, 0, true); else py = partition(g0, 0, false); }
+      if (MD.room) { /* ambiente único */ } else if (w >= 10) px = partition(g0, 0, true); else if (h >= 8 || (w >= 7 && !office)) { if (w >= 7 && !office && h < 8) px = partition(g0, 0, true); else py = partition(g0, 0, false); }
 
       // poços de escada: 1 (2 andares) ou 2 alternados (3+ andares); cada poço = 2 tiles lado a lado
       const stairs = b.stairs;
@@ -239,7 +257,7 @@ function genWorld(seed) {
           if (g[idx(cx, cy)] === K.FLOOR) g[idx(cx, cy)] = K.CRATE;
         }
       };
-      crates(g0, model === 'galpao' ? ri(4, 8) : model === 'garagem' ? ri(1, 2) : ri(1, 3), px, py);
+      crates(g0, MD.cr ? ri(MD.cr[0], MD.cr[1]) : ri(1, 3), px, py);
 
       // andares superiores
       for (let f = 1; f < b.floors; f++) {
@@ -294,7 +312,7 @@ function genWorld(seed) {
   const g0 = new Uint8Array(NT), g1 = new Uint8Array(NT), f0 = new Uint8Array(NT), bAt = new Int8Array(NT).fill(-1);
   for (let x = 0; x < MW; x++) { g0[x] = 1; g0[(MH - 1) * MW + x] = 1; }
   for (let y = 0; y < MH; y++) { g0[y * MW] = 1; g0[y * MW + MW - 1] = 1; }
-  const gf = [g0, g1, new Uint8Array(NT), new Uint8Array(NT)];
+  const gf = Array.from({ length: MAXF }, (_, i) => i === 0 ? g0 : i === 1 ? g1 : new Uint8Array(NT));
   const rc = new Uint8Array(MAXF * NT), sp = { x: 4, y: MH - 5 }, ex = { x: MW - 5, y: 4 };
   bfsNodes(gf, bAt, [], sp.y * MW + sp.x, -1, rc);
   return { gf, g0, g1, f0, bAt, bl: [], dl: [], rc, sp, ex };
@@ -343,7 +361,7 @@ function drawSolidTile(c, x, y, kind, fl) {
   const horiz = wallish(tileK(x - 1, y, fl)) && wallish(tileK(x + 1, y, fl));
   const bm = bldAt[y * MW + x] >= 0 && blds[bldAt[y * MW + x]] ? blds[bldAt[y * MW + x]].model : 'office';
   const wallBase = () => {
-    const wood = bm === 'cabana' || bm === 'galpao', brick = !wood && bm !== 'office';
+    const wood = bm === 'cabana' || bm === 'galpao' || bm === 'chale', conc = ['office', 'edificio', 'torre', 'hotel', 'fabrica', 'posto'].includes(bm), brick = !wood && !conc;
     c.fillStyle = wood ? '#6a4a28' : brick ? '#6b3a2a' : '#5b5f65'; c.fillRect(px, py, T, T);
     c.fillStyle = wood ? '#a57a48' : brick ? '#9a5a40' : '#6f747b'; c.fillRect(px + 2, py + 2, T - 4, T - 4);
   };
@@ -383,6 +401,12 @@ function drawSolidTile(c, x, y, kind, fl) {
     c.beginPath(); c.moveTo(px + 5, py + 5); c.lineTo(px + T - 5, py + T - 5); c.moveTo(px + T - 5, py + 5); c.lineTo(px + 5, py + T - 5); c.stroke();
     c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1;
     c.beginPath(); c.moveTo(px + 5, py + T / 2); c.lineTo(px + T - 5, py + T / 2); c.stroke();
+    const chp = wallHp.get(fl * NT + y * MW + x);
+    if (chp != null) {                                  // caixa danificada: rachaduras e lascas
+      const dm = 1 - chp / CRATE_HP; c.strokeStyle = 'rgba(30,15,5,.85)'; c.lineWidth = 1.6; c.beginPath();
+      for (let i = 0; i < 2 + Math.round(dm * 5); i++) { const sx = px + 6 + hash(x * 9 + i, y) * (T - 12), sy = py + 6 + hash(x, y * 9 + i) * (T - 12); c.moveTo(sx, sy); c.lineTo(sx + (hash(i, x + y) - .5) * 18, sy + (hash(y, i + x) - .5) * 18); c.lineTo(sx + (hash(x + y, i) - .5) * 24, sy + (hash(i + y, x) - .5) * 24); }
+      c.stroke(); c.fillStyle = 'rgba(0,0,0,.18)'; c.fillRect(px + 5, py + 5, T - 10, (T - 10) * dm * .5);
+    }
   } else if (kind === K.TREE) {
     const ox = (hash(x, y) - .5) * 4, oy = (hash(y, x) - .5) * 4;
     c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.arc(px + T / 2 + 5, py + T / 2 + 6, 21, 0, PI2); c.fill();
@@ -468,7 +492,7 @@ function makeRoof(b, seed) {
   const c = cv.getContext('2d'), r = mulberry32(seed);
   if (b.kind === 'house') {
     const mdl = b.model || 'casa';
-    const col = mdl === 'cabana' ? '#5a4030' : mdl === 'galpao' ? '#6a7480' : mdl === 'bangalo' ? '#8a7a5c' : mdl === 'sobrado' ? '#4a525c' : mdl === 'garagem' ? '#7a6a58' : ['#8a3f2e', '#6b4a3a', '#7a4a2a', '#5a4a52'][Math.floor(r() * 4)];
+    const col = mdl === 'cabana' ? '#5a4030' : mdl === 'galpao' || mdl === 'fabrica' || mdl === 'posto' ? '#6a7480' : mdl === 'chale' ? '#5a3a28' : mdl === 'mansao' ? '#3a3f48' : mdl === 'apto' ? '#6a5048' : mdl === 'bangalo' ? '#8a7a5c' : mdl === 'sobrado' ? '#4a525c' : mdl === 'garagem' ? '#7a6a58' : ['#8a3f2e', '#6b4a3a', '#7a4a2a', '#5a4a52'][Math.floor(r() * 4)];
     c.fillStyle = col; c.fillRect(0, 0, cv.width, cv.height);
     c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 1;
     for (let y = 6; y < cv.height; y += 9) { c.beginPath(); c.moveTo(0, y); c.lineTo(cv.width, y); c.stroke(); for (let x = (y / 9 % 2) * 8; x < cv.width; x += 16) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 9); c.stroke(); } }
@@ -520,6 +544,14 @@ function destroyCrate(tx, ty, L) {
   if (!MP.on && Math.random() < .5) dropPickup(tx * T + T / 2, ty * T + T / 2, true, false, L);
   for (let i = 0; i < 10; i++) spawnPart({ x: tx * T + T / 2, y: ty * T + T / 2, vx: rand(-160, 160), vy: rand(-160, 160), life: rand(.4, .9), size: rand(2, 4), color: '#a97f40', drag: 3, kind: 'dot' });
   sfx('crate');
+}
+// caixas: aguentam alguns tiros e racham antes de quebrar
+const CRATE_HP = 65;
+function hitCrate(tx, ty, L, dmg) {
+  const key = floorOfL(L) * NT + ty * MW + tx, hp = (wallHp.has(key) ? wallHp.get(key) : CRATE_HP) - dmg;
+  if (hp <= 0) { wallHp.delete(key); destroyCrate(tx, ty, L); return; }
+  wallHp.set(key, hp); refreshTile(tx, ty, L);
+  for (let i = 0; i < 4; i++) spawnPart({ x: tx * T + T / 2 + rand(-10, 10), y: ty * T + T / 2 + rand(-10, 10), vx: rand(-90, 90), vy: rand(-90, 90), life: rand(.3, .6), size: rand(1.5, 3), color: '#b88a4c', drag: 3, kind: 'dot', L });
 }
 // resistência das paredes a explosões (foguetes, granadas, cargas)
 const WALL_HP = { [K.PART]: 35, [K.WOODW]: 60, [K.BRICK]: 100, [K.WALL]: 170 };
