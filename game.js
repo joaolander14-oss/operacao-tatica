@@ -34,7 +34,8 @@ const sticks = {
 /* =====================================================================
    ÁUDIO (sintetizado)
    ===================================================================== */
-let AC = null, master = null, noiseBuf = null, muted = false, OUT = null, gunBus = null, revSend = null, gunOut = null;
+let AC = null, master = null, noiseBuf = null, muted = false, OUT = null, gunBus = null, revSend = null, gunOut = null, VOICES = 0, FORCE = false;
+const VMAX = 64;
 function initAudio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
@@ -46,11 +47,11 @@ function initAudio() {
     gunBus = AC.createGain(); gunBus.gain.value = 2.1;
     const sh = AC.createWaveShaper(), cv = new Float32Array(2048);
     for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * 3.4) * .95; }
-    sh.curve = cv; sh.oversample = '2x';
+    sh.curve = cv; sh.oversample = 'none';
     gunOut = AC.createGain(); gunOut.gain.value = 3.6 * gunVolume(); gunOut.connect(lim);
     gunBus.connect(sh); sh.connect(gunOut);
-    const len = Math.floor(AC.sampleRate * 2.2), ir = AC.createBuffer(2, len, AC.sampleRate);
-    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / AC.sampleRate; lp += ((Math.random() * 2 - 1) - lp) * (.55 - .4 * Math.min(1, t / 1.2)); d[i] = lp * Math.exp(-t * 2.6) * (1 + (i < 900 ? 1.5 : 0)); } }
+    const len = Math.floor(AC.sampleRate * 1.3), ir = AC.createBuffer(1, len, AC.sampleRate);
+    for (let ch = 0; ch < 1; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { const t = i / AC.sampleRate; lp += ((Math.random() * 2 - 1) - lp) * (.55 - .4 * Math.min(1, t / 1.2)); d[i] = lp * Math.exp(-t * 3.6) * (1 + (i < 900 ? 1.5 : 0)); } }
     const conv = AC.createConvolver(); conv.buffer = ir;
     revSend = AC.createGain(); revSend.gain.value = .4;
     sh.connect(revSend); revSend.connect(conv); conv.connect(gunOut);
@@ -60,32 +61,35 @@ function initAudio() {
   } catch (e) { AC = null; }
 }
 function noiseHit(dur, f0, f1, vol, delay = 0) {
-  if (!AC || muted) return;
+  if (!AC || muted || (!FORCE && VOICES >= VMAX)) return;
   const t = AC.currentTime + delay;
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
   const fl = AC.createBiquadFilter(); fl.type = 'lowpass';
   fl.frequency.setValueAtTime(f0, t); fl.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(OUT || master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+  VOICES++; s.onended = () => { VOICES--; };
 }
 // volume dos tiros (opção do jogador, 0..100%)
 const gunVolume = () => clamp(((SAVE.settings && SAVE.settings.gunVol != null) ? SAVE.settings.gunVol : 100) / 100, 0, 1);
 function applyGunVolume() { if (gunOut) gunOut.gain.value = 3.6 * gunVolume(); }
 function noiseHP(dur, f, vol, delay = 0) {
-  if (!AC || muted) return;
+  if (!AC || muted || (!FORCE && VOICES >= VMAX)) return;
   const t = AC.currentTime + delay;
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
   const fl = AC.createBiquadFilter(); fl.type = 'highpass'; fl.frequency.value = f;
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   s.connect(fl); fl.connect(g); g.connect(OUT || master); s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+  VOICES++; s.onended = () => { VOICES--; };
 }
 function tone(f0, f1, dur, vol, type = 'sine', delay = 0) {
-  if (!AC || muted) return;
+  if (!AC || muted || (!FORCE && VOICES >= VMAX)) return;
   const t = AC.currentTime + delay;
   const o = AC.createOscillator(); o.type = type;
   o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(Math.max(.001, vol), t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   o.connect(g); g.connect(OUT || master); o.start(t); o.stop(t + dur + .03);
+  VOICES++; o.onended = () => { VOICES--; };
 }
 const SFX = {
   pistol:  (v = 1) => { noiseHit(.09, 3500, 700, .35 * v); tone(220, 70, .07, .2 * v, 'square'); },
@@ -133,8 +137,20 @@ const SND_PITCH = {
 };
 const SUBSONIC = new Set(['.22', '.32', '.380', '9mm', '9x18', '.45', '10mm', '9x39', '.357', '.44', '.50AE', '.45-70']);
 const clack = (delay, f, vol) => { tone(f, f * .5, .03, vol, 'square', delay); noiseHP(.03, 3200, vol * .7, delay); };
-function gunshot(w, v = 1) { try { gunshot2(w, v); } finally { OUT = null; } }
-function gunshot2(w, v = 1) {
+const GS = { t: 0, full: 0, all: 0 };
+function gunshot(w, v = 1, own = false) {
+  const now = performance.now();
+  if (now - GS.t > 120) { GS.t = now; GS.full = 0; GS.all = 0; }
+  GS.all++;
+  let lite = false;
+  if (!own) {
+    if (GS.full >= 3 || VOICES > 40) { if (v > .3 && GS.all <= 8) lite = true; else return; }   // muitos tiros ao mesmo tempo: só os mais próximos, em versão leve
+    if (!lite) GS.full++;
+  }
+  FORCE = own;
+  try { gunshot2(w, v, lite); } finally { OUT = null; FORCE = false; }
+}
+function gunshot2(w, v = 1, lite = false) {
   if (!AC || muted || !w) return;
   const C = CALIBERS[w.cal], grp = w.grp || '', cls = w.snd || 'rifle', mz = w.muzzle, len = w.len || 25;
   let pf = SND_PITCH[w.cal] || (C && C.fam ? .62 : 1);
@@ -151,6 +167,7 @@ function gunshot2(w, v = 1) {
     const V = v * 1.9, sub = SUBSONIC.has(w.cal);
     revSend && (revSend.gain.value = indoor ? .45 : .18);
     noiseHP(.045 + .03 * en, 3000 * Math.sqrt(pf), (sub ? .6 : .85) * V * en);                  // sopro agudo
+    if (lite) { tone(2000 * pf, 1000 * pf, .05, .26 * V, 'sine'); OUT = null; return; }
     noiseHit(.035, 10000, 3500, .4 * V * en);                                                    // chiado
     tone(2000 * pf, 1000 * pf, .05, .26 * V, 'sine');                                            // tom fino
     if (!sub) noiseHP(.012, 4200, .7 * V * near);                                                // estalo fino supersônico
@@ -166,6 +183,7 @@ function gunshot2(w, v = 1) {
   noiseHit(.07 + .13 * en, Math.min(9000, 4800 * pf) * (1 - len / 300), 380, .9 * V * en);
   const boomMul = grp === 'Revólveres' ? 1.25 : (grp === 'Fuzis de batalha' || grp === 'Atiradores designados' || grp === 'Snipers') ? 1.15 : 1;
   tone((150 * pf + 20) * (lb ? .85 : 1), 30, (.12 + .32 * en) / Math.sqrt(pf), .75 * V * en * boomMul, 'sine');
+  if (lite) { revSend && (revSend.gain.value = .15); OUT = null; return; }
   tone(95 * pf, 28, .08 + .2 * en, .45 * V * en, 'triangle', .004);
   // assinatura de cada grupo
   if (cls === 'shotgun') { tone(80, 26, .4, .7 * V, 'sawtooth'); noiseHit(.3, 2400, 200, .55 * V); if (w.reloadType === 'shell' || w.delay > .5) { clack(.32, 700, .22 * V); clack(.42, 520, .2 * V); } }
@@ -618,7 +636,7 @@ function fireShot(w, sl) {
 
   if (w.flame) { if (G.time - p.lastFlame > .12) { sfx('flame'); p.lastFlame = G.time; } }
   else if (w.rocket) sfx('rpg');
-  else gunshot(w, 1);
+  else gunshot(w, 1, true);
   if (!w.rocket && !w.flame && w.shape !== 'revolver' && w.shape !== 'dupla') {
     const a = p.ang + Math.PI / 2 + rand(-.4, .4);
     spawnPart({ x: p.x + Math.cos(p.ang) * 8, y: p.y + Math.sin(p.ang) * 8, vx: Math.cos(a) * rand(60, 130), vy: Math.sin(a) * rand(60, 130), life: 1.4, size: 2, color: w.pellets > 1 ? '#d95a5a' : cal.color, cal: w.cal, drag: 4, kind: 'casing', rot: rand(0, PI2), vr: rand(-12, 12), layer: 0, L: p.L });
@@ -1891,7 +1909,7 @@ function update(dt) {
   G.time += dt; G.dt = dt;
   TARGETS = [];
   if (!player.dead && !(MP.on && G.protT > 0)) TARGETS.push(player);
-  if (MP.on && MP.isHost && MP.botN) for (const r of MP.remotes.values()) if (!r.bot && !r.dead && !r.pr) TARGETS.push(r);
+  if (MP.on && MP.isHost && MP.botN) for (const r of MP.remotes.values()) if (!r.bot && !r.dead && !r.pr && !r.stale) TARGETS.push(r);
   for (const a of allies) if (!a.dead && !a.bound) TARGETS.push(a);
 
   updatePlayer(dt);

@@ -169,7 +169,7 @@ function mpJoin(code) {
   const peer = new Peer(); MP.peer = peer;
   const timer = setTimeout(() => { if (MP.state === 'connecting') { mpClose(); mpSetStatus('Tempo esgotado. Confira o código e a internet.'); } }, 15000);
   peer.on('open', () => {
-    const conn = peer.connect('optac-' + code, { reliable: true });
+    const conn = peer.connect('optac-' + code, { reliable: true, serialization: 'json' });
     MP.hostConn = conn;
     conn.on('open', () => conn.send({ t: 'hello', name: MP.name, load: mpLoad() }));
     conn.on('data', m => mpGuestRecv(m));
@@ -224,10 +224,12 @@ function mpHandle(m) {
     case 'sh': if (MP.on) mpOnShots(m, pl); break;
     case 'th': if (MP.on) mpOnThrow(m, pl); break;
     case 'hit': if (MP.on) { if (m.v != null) { if (MP.isHost) mpOnBotHit(m); } else mpOnHit(m); } break;
-    case 'dead': if (MP.on) mpOnDead(m, pl); break;
+    case 'dead': if (MP.on) mpOnDead(m, MP.players.get(m.v | 0)); break;   // a vítima é m.v (os bots morrem por mensagem do anfitrião)
     case 'pk': if (MP.on) mpOnPick(m); break;
     case 'end': if (m.f === 0) mpFinish(m.r); break;
     case 'rnd': if (m.f === 0) mpOnRound(m); break;
+    case 'sb': if (MP.on && m.f === 0 && Array.isArray(m.l)) for (const it of m.l.slice(0, 16)) mpOnState(Object.assign({ f: 0 }, it)); break;
+    case 'al': if (MP.on && m.f === 0 && Array.isArray(m.a)) mpReconcile(m.a); break;
     case 'obj': if (MP.on) { if (m.k === 'plant') mpApplyPlant(m.s); else if (m.k === 'defuse') mpApplyDefuse(); } break;
     case 'cap': if (MP.on && m.f === 0) { MP.cap = clamp(mpNum(m.v), 0, 100); if (Array.isArray(m.i)) MP.capIn = [m.i[0] | 0, m.i[1] | 0]; } break;
   }
@@ -235,7 +237,7 @@ function mpHandle(m) {
 
 function mpRemote(id) {
   let r = MP.remotes.get(id);
-  if (!r) { const pp = MP.players.get(id); r = { isRemote: true, bot: !!(pp && pp.bot), id, x: 0, y: 0, tx: 0, ty: 0, L: -1, a: 0, ta: 0, r: 11, w: null, hp: 100, dead: true, pr: false, cr: false, walk: 0, fl: 0, rec: 0, hitT: 0, showT: 0, lastPart: 'torso', init: false, vis: false, ps: [0, 0, 0, 0, 0, 0], parts: null }; MP.remotes.set(id, r); mpPartsOf(r); }
+  if (!r) { const pp = MP.players.get(id); r = { lastMsg: G.time, stale: false, bg: false, isRemote: true, bot: !!(pp && pp.bot), id, x: 0, y: 0, tx: 0, ty: 0, L: -1, a: 0, ta: 0, r: 11, w: null, hp: 100, dead: true, pr: false, cr: false, walk: 0, fl: 0, rec: 0, hitT: 0, showT: 0, lastPart: 'torso', init: false, vis: false, ps: [0, 0, 0, 0, 0, 0], parts: null }; MP.remotes.set(id, r); mpPartsOf(r); }
   return r;
 }
 function mpPartsOf(r) { const o = {}; PARTS.forEach((k, i) => { o[k] = { hp: MP_STATE_HP[r.ps[i]] || 0, max: 1 }; }); r.parts = o; }
@@ -244,16 +246,39 @@ function mpOnState(m) {
   if (!MP.players.get(rid)) return;
   const r = mpRemote(rid);
   r.tx = mpNum(m.x); r.ty = mpNum(m.y); r.ta = mpNum(m.a); r.L = clamp(mpNum(m.L, -1) | 0, -1, mpLmax());
-  if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; }
-  r.hl = !!m.hl; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
+  r.lastMsg = G.time; r.bg = !!m.bg; r.stale = false;
+  if (!r.init || (r.dead && !m.d)) { r.x = r.tx; r.y = r.ty; r.a = r.ta; r.init = true; if (r.dead && !m.d) r.revT = G.time; }
+  r.hl = !!m.hl; r.w = WMAP[m.w] ? m.w : null; r.hp = mpNum(m.h); if (!!m.d && !r.dead) r.deadT = G.time; r.dead = !!m.d; r.pr = !!m.pr; r.cr = !!m.c;
   if (m.fl) r.fl = .06;
   if (typeof m.ps === 'string' && m.ps.length === 6) { r.ps = m.ps.split('').map(ch => clamp(+ch || 0, 0, 4)); mpPartsOf(r); }
 }
-function mpSendState() {
+function mpStateOf(x, y, L, a, w, hp, dead, pr, crawl, fl, parts) { return { x: mpR(x), y: mpR(y), L, a: +a.toFixed(2), w, h: hp, d: dead ? 1 : 0, pr: pr ? 1 : 0, c: crawl ? 1 : 0, fl: fl ? 1 : 0, ps: parts }; }
+// o anfitrião lista quem está vivo; quem não está na lista é marcado como morto (corrige 'dead' perdido)
+function mpAliveList() {
+  const a = []; if (!player.dead) a.push(MP.myId);
+  for (const r of MP.remotes.values()) if (!r.bot && !r.dead && !r.stale) a.push(r.id);
+  for (const e of enemies) if (e.mpId != null && !e.dead) a.push(e.mpId);
+  return a;
+}
+function mpReconcile(a) {
+  for (const r of MP.remotes.values()) {
+    if (r.dead || !r.init || a.includes(r.id) || G.time - (r.revT || 0) < 1.5 || G.time - r.lastMsg < .3) continue;
+    r.dead = true; r.pr = false; r.deadT = G.time;
+    addDecal({ k: 'corpse', x: r.x, y: r.y, ang: r.a, who: 'player', L: r.L }); addDecal({ k: 'pool', x: r.x, y: r.y, r: 6, max: 20, a: .8, L: r.L });
+    const pl = MP.players.get(r.id); if (pl) pl.alive = false;
+  }
+}
+function mpSendState(bg) {
   const p = player, w = curW();
-  mpSend({ t: 'st', x: mpR(p.x), y: mpR(p.y), L: p.L, a: +p.ang.toFixed(2), w: p.melee ? p.melee.w.id : (w ? w.id : null), h: Math.round(p.hp), d: p.dead ? 1 : 0, pr: G.protT > 0 ? 1 : 0, c: p.fx && p.fx.crawl ? 1 : 0, fl: p.flash > 0 ? 1 : 0, hl: p.healing ? 1 : 0, ps: PARTS.map(k => pState(p, k)).join('') });
-  // o anfitrião também envia o estado dos bots
-  if (MP.isHost) for (const e of enemies) if (e.mpId != null && !e.dead) mpSend({ t: 'st', b: e.mpId, x: mpR(e.x), y: mpR(e.y), L: e.L, a: +e.ang.toFixed(2), w: e.ty.weapon, h: Math.max(1, Math.round(e.hp / e.maxHp * 100)), d: 0, pr: 0, c: e.fx && e.fx.crawl ? 1 : 0, fl: e.flash > 0 ? 1 : 0, ps: PARTS.map(k => pState(e, k)).join('') });
+  const s = mpStateOf(p.x, p.y, p.L, p.ang, p.melee ? p.melee.w.id : (w ? w.id : null), Math.round(p.hp), p.dead, G.protT > 0, p.fx && p.fx.crawl, p.flash > 0, PARTS.map(k => pState(p, k)).join(''));
+  s.t = 'st'; s.hl = p.healing ? 1 : 0; if (bg) s.bg = 1;
+  mpSend(s);
+  // o anfitrião manda o estado de todos os bots em UMA mensagem
+  if (MP.isHost) {
+    const l = [];
+    for (const e of enemies) if (e.mpId != null && !e.dead) { const b = mpStateOf(e.x, e.y, e.L, e.ang, e.ty.weapon, Math.max(1, Math.round(e.hp / e.maxHp * 100)), false, false, e.fx && e.fx.crawl, e.flash > 0, PARTS.map(k => pState(e, k)).join('')); b.b = e.mpId; l.push(b); }
+    if (l.length) mpSend({ t: 'sb', l });
+  }
 }
 
 // tiros: cada projétil vira um "fantasma" visual/destruidor nos outros clientes
@@ -288,7 +313,7 @@ function mpOnShots(m, pl) {
 // tiro nosso contra jogadores remotos (quem atira decide o acerto)
 function mpBulletVsRemotes(b) {
   for (const r of MP.remotes.values()) {
-    if (r.dead || r.pr || r.L !== b.L || (b.hit && b.hit.includes(r)) || mpFriend(r.id)) continue;
+    if (r.dead || r.stale || r.pr || r.L !== b.L || (b.hit && b.hit.includes(r)) || mpFriend(r.id)) continue;
     const dx = r.x - b.x, dy = r.y - b.y, rr = r.r + 2;
     if (dx * dx + dy * dy >= rr * rr) continue;
     (b.hit || (b.hit = [])).push(r);
@@ -311,7 +336,7 @@ function mpBulletVsRemotes(b) {
 function mpMelee(w, ang) {
   const p = player, list = [];
   for (const r of MP.remotes.values()) {
-    if (r.dead || r.pr || r.L !== p.L || mpFriend(r.id)) continue;
+    if (r.dead || r.stale || r.pr || r.L !== p.L || mpFriend(r.id)) continue;
     const d = Math.hypot(r.x - p.x, r.y - p.y);
     if (d > w.range + r.r) continue;
     if (Math.abs(angDiff(Math.atan2(r.y - p.y, r.x - p.x), ang)) > w.arc / 2 + Math.min(.6, r.r / Math.max(d, 1))) continue;
@@ -392,7 +417,7 @@ function mpOnThrow(m) {
 function mpMineTriggered(m) {
   const near = (o, r) => Math.hypot(o.x - m.x, o.y - m.y) < 64 + r;
   if (!player.dead && m.owner !== MP.myId && m.L === player.L && near(player, player.r) && !mpFriend(m.owner)) return true;
-  for (const r of MP.remotes.values()) if (!r.dead && r.id !== m.owner && r.L === m.L && near(r, r.r) && !(mpTdm() && mpTeamOf(r.id) === mpTeamOf(m.owner))) return true;
+  for (const r of MP.remotes.values()) if (!r.dead && !r.stale && r.id !== m.owner && r.L === m.L && near(r, r.r) && !(mpTdm() && mpTeamOf(r.id) === mpTeamOf(m.owner))) return true;
   return false;
 }
 
@@ -573,7 +598,9 @@ function mpUpdate(dt) {
   if (player.dead) { MP.respawnT -= dt; if (MP.respawnT <= 0) mpRespawn(); }
   MP.sendT -= dt;
   if (MP.sendT <= 0) { MP.sendT = MP_SEND; mpSendState(); }
+  if (MP.isHost) { MP.alT = (MP.alT || 0) - dt; if (MP.alT <= 0) { MP.alT = 1; mpSend({ t: 'al', a: mpAliveList() }); } }
   for (const r of MP.remotes.values()) {
+    r.stale = G.time - r.lastMsg > 3.5;
     const dx = r.tx - r.x, dy = r.ty - r.y, d = Math.hypot(dx, dy);
     if (d > 260) { r.x = r.tx; r.y = r.ty; } else { const k = 1 - Math.exp(-dt * 16); r.x += dx * k; r.y += dy * k; r.walk += d * k * .12; }
     r.a += angDiff(r.ta, r.a) * (1 - Math.exp(-dt * 18));
@@ -591,13 +618,13 @@ function mpUpdate(dt) {
   MP.hudT -= dt;
   if (MP.hudT <= 0) { MP.hudT = .25; mpUpdateHud(); }
 }
-const mpEnts = () => { const a = []; for (const r of MP.remotes.values()) if (!r.dead) a.push(r); return a; };
+const mpEnts = () => { const a = []; for (const r of MP.remotes.values()) if (!r.dead && !r.stale) a.push(r); return a; };
 
 /* ---------- Desenho dos jogadores remotos ---------- */
 function mpDraw(c, p, pts) {
   for (const r of MP.remotes.values()) {
     r.vis = false;
-    if (r.dead || !r.init) continue;
+    if (r.dead || !r.init || r.stale) continue;
     if (!layerShown(r.L, r.x, r.y)) continue;
     const d = Math.hypot(r.x - p.x, r.y - p.y);
     r.vis = canView(p.L, r.L, r.x, r.y) && seesEnemy(p, r, d, pts);
@@ -605,6 +632,7 @@ function mpDraw(c, p, pts) {
     if (!r.vis) continue;
     const pl = MP.players.get(r.id), ld = (pl && pl.load) || mpCleanLoad(null), bt = null, look = mpLook(r.id), wd = r.w ? WMAP[r.w] : null;
     drawSoldier(c, r.x, r.y, r.a, { ...look, skin: !bt, vestId: ld.gear.body, helmId: ld.gear.head, backId: ld.gear.back, eyesId: ld.gear.eyes, legsId: ld.gear.legs, att: wd && !wd.melee ? ld.attach[wd.id] : null, weapon: r.w, flash: r.fl, recoil: r.rec, walk: r.walk, scale: bt ? bt.scale : 1, tint: r.hitT > 0, wound: woundLevel({ parts: r.parts }), crawl: r.cr });
+    if (r.bg) { c.fillStyle = '#ffd24a'; c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('💤', r.x, r.y - 36); c.fillText('💤', r.x, r.y - 36); }
     if (r.hl) { c.fillStyle = '#6fe07a'; c.font = 'bold 14px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.strokeStyle = '#000'; c.lineWidth = 3; c.strokeText('✚', r.x + 16, r.y - 14); c.fillText('✚', r.x + 16, r.y - 14); }
     if (r.pr) { c.strokeStyle = 'rgba(143,220,255,.7)'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.arc(r.x, r.y, 17, 0, PI2); c.stroke(); c.setLineDash([]); }
     const friend = mpFriend(r.id);
@@ -627,7 +655,7 @@ function mpMinimap(m) {
   for (const S of MP.sites) { m.fillStyle = MP.cfg.gm === 'zone' ? '#ffd24a' : '#ff9a3a'; m.fillRect(S.x / T * MINI_S - 3, S.y / T * MINI_S - 3, 7, 7); }
   if (MP.bomb && !MP.bomb.defused) { m.fillStyle = '#ff3a2a'; m.fillRect(MP.bomb.x / T * MINI_S - 4, MP.bomb.y / T * MINI_S - 4, 9, 9); }
   for (const r of MP.remotes.values()) {
-    if (r.dead) continue;
+    if (r.dead || r.stale) continue;
     const friend = mpFriend(r.id);
     if (!friend && !r.vis) continue;
     m.fillStyle = friend ? '#6fe07a' : '#ff4a3a'; m.fillRect(r.x / T * MINI_S - 1.5, r.y / T * MINI_S - 1.5, 3.5, 3.5);

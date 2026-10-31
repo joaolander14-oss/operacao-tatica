@@ -917,7 +917,13 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => input.keys.delete(e.code));
 window.addEventListener('blur', () => { input.keys.clear(); input.mouseDown = false; if (G.state === 'play' && !MP.on) setPaused(true); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'play' && !MP.on) setPaused(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && G.state === 'play' && !MP.on) setPaused(true);
+  // no multiplayer, em segundo plano (celular) o jogo para de rodar: avisa os outros periodicamente em vez de sumir
+  if (MP.bgTimer) { clearInterval(MP.bgTimer); MP.bgTimer = null; }
+  if (document.hidden && MP.on) MP.bgTimer = setInterval(() => { if (MP.on && player) mpSendState(true); else { clearInterval(MP.bgTimer); MP.bgTimer = null; } }, 900);
+  else if (!document.hidden && MP.on) { lastT = performance.now(); mpSendState(); }
+});
 window.addEventListener('wheel', e => {
   if (G.state !== 'play' || touchMode) return;
   cycleWeapon(e.deltaY > 0 ? 1 : -1);
